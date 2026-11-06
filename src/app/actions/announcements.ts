@@ -33,8 +33,9 @@ export async function publishAnnouncement(_: AnnState, form: FormData): Promise<
   const targets = await db.enrollment.findMany({ where: { AND: [enrollmentScope(user), { status: "ACTIVE" }, narrow] }, select: { personId: true } });
   if (targets.length === 0) return { error: "Нет получателей с такими условиями" };
 
+  const id = (await import("node:crypto")).randomUUID();
   await db.$transaction([
-    db.announcement.create({ data: {
+    db.announcement.create({ data: { id,
       authorId: user.id, title: d.title, body: d.body, important: d.important === "on",
       facultyId: user.role === "DEAN_OFFICE" ? user.staffFacultyId : null,
       departmentId: user.role === "DEPARTMENT" ? user.staffDepartmentId : null,
@@ -42,8 +43,53 @@ export async function publishAnnouncement(_: AnnState, form: FormData): Promise<
     } }),
     db.notification.createMany({ data: [...new Set(targets.map((t) => t.personId))].map((personId) => ({
       personId, type: "announcement", title: (d.important === "on" ? "Важно: " : "") + d.title, body: d.body.slice(0, 300),
+      dedupeKey: `ann:${id}:${personId}`, // по ключу уведомление обновится, если объявление исправят
     })) }),
   ]);
   revalidatePath("/staff/announcements");
   return { sent: new Set(targets.map((t) => t.personId)).size };
+}
+
+// ---------- исправление опубликованного объявления ----------
+
+export type EditAnnState = { error?: string; ok?: string } | undefined;
+
+const EditSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(3).max(120),
+  body: z.string().trim().min(3).max(2000),
+  important: z.string().optional(),
+});
+
+/**
+ * Автор исправляет своё объявление в любой момент, даже после публикации.
+ * Получатели остаются прежними; их уведомления обновляются и снова становятся непрочитанными с пометкой «исправлено».
+ */
+export async function updateAnnouncement(_: EditAnnState, form: FormData): Promise<EditAnnState> {
+  const user = await requireUser(["DEAN_OFFICE", "SUPERVISOR", "DEPARTMENT"]);
+  const p = EditSchema.safeParse(Object.fromEntries(form));
+  if (!p.success) return { error: "Заголовок и текст — от 3 символов" };
+  const d = p.data;
+  const a = await db.announcement.findFirst({ where: { id: d.id, authorId: user.id } }); // чужое = «не найдено»
+  if (!a) return { error: "Объявление не найдено" };
+  const important = d.important === "on";
+  if (a.title === d.title && a.body === d.body && a.important === important) return { error: "Ничего не изменилось" };
+
+  const title = `${important ? "Важно: " : ""}${d.title} (исправлено)`;
+  const data = { title, body: d.body.slice(0, 300), readAt: null };
+  const [, byKey] = await db.$transaction([
+    db.announcement.update({ where: { id: a.id }, data: { title: d.title, body: d.body, important, editedAt: new Date() } }),
+    db.notification.updateMany({ where: { dedupeKey: { startsWith: `ann:${a.id}:` } }, data }),
+  ]);
+  // объявления, опубликованные до появления ключа, находим по прежнему тексту
+  let legacy = { count: 0 };
+  if (byKey.count === 0) {
+    const oldTitle = `${a.important ? "Важно: " : ""}${a.title}`;
+    legacy = await db.notification.updateMany({
+      where: { type: "announcement", dedupeKey: null, title: { in: [oldTitle, `${oldTitle} (исправлено)`] }, body: a.body.slice(0, 300), createdAt: { gte: new Date(a.publishedAt.getTime() - 60_000) } },
+      data,
+    });
+  }
+  revalidatePath("/staff/announcements");
+  return { ok: `Исправлено. Обновлено уведомлений: ${byKey.count + legacy.count}` };
 }

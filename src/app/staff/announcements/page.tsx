@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { fmtDateTime } from "@/lib/time";
-import { AnnouncementForm } from "./announcement-form";
+import { AnnouncementForm, EditAnnouncement } from "./announcement-form";
 
 export default async function StaffAnnouncements() {
   const user = await requireUser(["DEAN_OFFICE", "SUPERVISOR", "DEPARTMENT"]);
@@ -23,9 +23,10 @@ export default async function StaffAnnouncements() {
           <ul className="space-y-2">
             {mine.map((a) => (
               <li key={a.id} className="rounded-lg border p-4">
-                <p className="text-xs text-muted-foreground">{fmtDateTime(a.publishedAt)} · {a.group ? `группа ${a.group.name}` : a.course ? `${a.course} курс` : "все"}{a.important && " · важное"}</p>
+                <p className="text-xs text-muted-foreground">{fmtDateTime(a.publishedAt)} · {a.group ? `группа ${a.group.name}` : a.course ? `${a.course} курс` : "все"}{a.important && " · важное"}{a.editedAt && ` · исправлено ${fmtDateTime(a.editedAt)}`}</p>
                 <b className="text-navy">{a.title}</b>
                 <p className="whitespace-pre-line text-sm">{a.body}</p>
+                <EditAnnouncement a={{ id: a.id, title: a.title, body: a.body, important: a.important }} />
               </li>
             ))}
           </ul>

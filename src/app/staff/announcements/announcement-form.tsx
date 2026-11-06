@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
-import { publishAnnouncement, type AnnState } from "@/app/actions/announcements";
+import { startTransition, useActionState, useState } from "react";
+import { publishAnnouncement, updateAnnouncement, type AnnState, type EditAnnState } from "@/app/actions/announcements";
 import { Button } from "@/components/ui/button";
 
 const f = "h-11 w-full rounded-sm border border-input bg-background px-3";
@@ -29,6 +29,37 @@ export function AnnouncementForm({ groups, canNarrow }: { groups: { id: number; 
       {state?.error && <p role="alert" className="text-sm text-brand-red">{state.error}</p>}
       {state?.sent && <p role="status" className="text-sm text-status-ok">Опубликовано. Уведомления получили: {state.sent}.</p>}
       <Button type="submit" className="h-11 w-full" disabled={pending}>{pending ? "Публикуем…" : "Опубликовать"}</Button>
+    </form>
+  );
+}
+
+/** «Исправить» под опубликованным объявлением: заголовок, текст, отметка «важное». Кому — не меняется. */
+export function EditAnnouncement({ a }: { a: { id: string; title: string; body: string; important: boolean } }) {
+  const [state, action, pending] = useActionState<EditAnnState, FormData>(updateAnnouncement, undefined);
+  const [open, setOpen] = useState(false);
+  if (!open) return (
+    <div className="mt-2">
+      <button type="button" onClick={() => setOpen(true)} className="h-11 rounded-sm border px-3 text-sm">Исправить</button>
+      {state?.ok && <p role="status" className="mt-1 text-sm text-status-ok">{state.ok}</p>}
+    </div>
+  );
+  return (
+    <form className="mt-3 space-y-3 rounded-lg border bg-muted/30 p-3" onSubmit={(e) => {
+      e.preventDefault();
+      const fd = new FormData(e.currentTarget);
+      startTransition(async () => { action(fd); });
+    }}>
+      <input type="hidden" name="id" value={a.id} />
+      <div className="space-y-1.5"><label htmlFor={`t-${a.id}`} className="text-sm font-medium">Заголовок</label><input id={`t-${a.id}`} name="title" required minLength={3} maxLength={120} defaultValue={a.title} className={f} /></div>
+      <div className="space-y-1.5"><label htmlFor={`b-${a.id}`} className="text-sm font-medium">Текст</label><textarea id={`b-${a.id}`} name="body" required minLength={3} maxLength={2000} rows={4} defaultValue={a.body} className="w-full rounded-sm border px-3 py-2" /></div>
+      <label className="flex min-h-11 items-center gap-3"><input type="checkbox" name="important" defaultChecked={a.important} className="size-4" /> Важное — выделить красным</label>
+      <p className="text-xs text-muted-foreground">Получатели те же. У них уведомление обновится и снова станет непрочитанным с пометкой «исправлено».</p>
+      {state?.error && <p role="alert" className="text-sm text-brand-red">{state.error}</p>}
+      {state?.ok && <p role="status" className="text-sm text-status-ok">{state.ok}</p>}
+      <div className="flex gap-2">
+        <Button type="submit" className="h-11 flex-1" disabled={pending}>{pending ? "Сохраняем…" : "Сохранить исправление"}</Button>
+        <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-sm border px-3 text-sm">Закрыть</button>
+      </div>
     </form>
   );
 }

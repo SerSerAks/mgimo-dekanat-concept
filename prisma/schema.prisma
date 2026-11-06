@@ -474,6 +474,7 @@ model Announcement {
   course       Int?
   level        Level?
   publishedAt  DateTime           @default(now())
+  editedAt     DateTime? // исправлено после публикации
   reads        AnnouncementRead[]
 }
 
