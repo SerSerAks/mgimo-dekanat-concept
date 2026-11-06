@@ -18,7 +18,7 @@ rsync -az --delete -e "ssh -i ~/.ssh/dekanat_aeza" --exclude node_modules --excl
 ```
 
 ```bash
-ssh -i ~/.ssh/dekanat_aeza root@83.141.92.172 'cd /opt/dekanat/deploy && docker compose -f docker-compose.prod.yml --profile tools build && docker compose -f docker-compose.prod.yml run --rm tools npx prisma migrate deploy && docker compose -f docker-compose.prod.yml up -d app caddy'
+ssh -i ~/.ssh/dekanat_aeza root@83.141.92.172 'cd /opt/dekanat/deploy && docker compose -f docker-compose.prod.yml build app && docker compose -f docker-compose.prod.yml --profile tools build tools && docker compose -f docker-compose.prod.yml run --rm tools npx prisma migrate deploy && docker compose -f docker-compose.prod.yml up -d app caddy'
 ```
 
 ## Догрузить новые справочные данные без очистки базы
@@ -47,3 +47,5 @@ ssh -i ~/.ssh/dekanat_aeza root@83.141.92.172 'cd /opt/dekanat/deploy && docker 
 ## Обновить мероприятия МГИМО
 
 mgimo.ru отдаёт автоматическим запросам заглушку защиты от ботов, обходить её мы не стали. Анонсы снимаются вручную через обычный браузер в `data/mgimo-events.json` (раз в несколько дней), затем пересоздаются данные или выполняется загрузка только мероприятий.
+
+> Образы собирать **по очереди** (`build app`, затем `build tools`): параллельная сборка на 2 ГБ памяти падает на `npm run build`.
