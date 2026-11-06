@@ -118,7 +118,7 @@ export async function createAccount(_: AccState, form: FormData): Promise<AccSta
     const r = await newPerson({ fio, role: "SUPERVISOR", createdById: user.id, extra: { staffDepartmentId: user.staffDepartmentId } }, reserved);
     await db.supervisorProfile.create({ data: { personId: r.person.id, position: p.data.position, degree: p.data.degree || null, interests: p.data.interests, maxStudents: p.data.maxStudents, levels: ["BACHELOR", "MASTER", "POSTGRAD"] } });
     revalidatePath("/staff/accounts");
-    return { creds: [{ fio: fioText(fio), login: r.login, password: r.password, note: "Научный руководитель" }] };
+    return { creds: [{ fio: fioText(fio), login: r.login, password: r.password, note: "Преподаватель кафедры (научный руководитель)" }] };
   }
   if (kind === "student" || kind === "postgrad") {
     const batch = await checkBatch(user, kind, Object.fromEntries(form));

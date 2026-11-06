@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { accountScope, creatableKinds } from "@/lib/access";
 import { CreateForm, BulkUpload, ResetButton } from "./account-forms";
 
-const KIND = { dean: "Деканаты", department: "Кафедры", student: "Студенты", postgrad: "Аспиранты", supervisor: "Научные руководители" } as const;
+const KIND = { dean: "Деканаты", department: "Кафедры", student: "Студенты", postgrad: "Аспиранты", supervisor: "Преподаватели" } as const;
 type Kind = keyof typeof KIND;
 const LEVEL = { BACHELOR: "бакалавр", MASTER: "магистрант", POSTGRAD: "аспирант" } as const;
 

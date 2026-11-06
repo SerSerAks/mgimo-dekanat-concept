@@ -60,7 +60,7 @@ export function CreateForm({ kind, faculties, departments, programs, groups }: {
   return (
     <form action={action} className="space-y-3" key={state?.creds?.[0]?.login ?? "form"}>
       <input type="hidden" name="kind" value={kind} />
-      <Field label={kind === "department" ? "ФИО сотрудника кафедры" : kind === "dean" ? "ФИО сотрудника деканата" : "ФИО"} hint="Фамилия Имя Отчество — логин соберётся сам">
+      <Field label={kind === "department" ? "ФИО сотрудника кафедры" : kind === "dean" ? "ФИО сотрудника деканата" : kind === "supervisor" ? "ФИО преподавателя" : "ФИО"} hint="Фамилия Имя Отчество — логин соберётся сам">
         <input name="fio" required placeholder="Иванов Петр Владимирович" className={f} />
       </Field>
       {kind === "dean" && <Field label="Факультет"><select name="facultyId" required className={f} defaultValue="">{[<option key="" value="" disabled>Выберите…</option>, ...faculties.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)]}</select></Field>}
@@ -76,7 +76,7 @@ export function CreateForm({ kind, faculties, departments, programs, groups }: {
             <Field label="Учёная степень"><input name="degree" placeholder="канд. полит. наук" className={f} /></Field>
           </div>
           <Field label="Научные интересы" hint="По ним студенты ищут руководителя"><input name="interests" required minLength={5} maxLength={300} className={f} /></Field>
-          <Field label="Сколько студентов готов вести"><input name="maxStudents" type="number" min={1} max={15} defaultValue={5} className={f} /></Field>
+          <Field label="Сколько студентов готов вести как научный руководитель"><input name="maxStudents" type="number" min={1} max={15} defaultValue={5} className={f} /></Field>
         </>
       )}
       {state?.error && <p role="alert" className="text-sm text-brand-red">{state.error}</p>}
