@@ -24,6 +24,28 @@ const Field = ({ label, children, hint }: { label: string; children: React.React
   <label className="block min-w-0 space-y-1.5 text-sm"><span className="font-medium">{label}</span>{children}{hint && <span className="block text-xs text-muted-foreground">{hint}</span>}</label>
 );
 
+/** Факультет из списка или «Другой» — тогда название и сокращение вписываются вручную. */
+function FacultyPicker({ faculties, defaultValue }: { faculties: Opt[]; defaultValue?: number | null }) {
+  const [v, setV] = useState(defaultValue != null ? String(defaultValue) : "");
+  return (
+    <>
+      <Field label="Факультет">
+        <select name="facultyId" required value={v} onChange={(e) => setV(e.target.value)} className={f}>
+          <option value="" disabled>Выберите…</option>
+          {faculties.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+          <option value="new">Другой — вписать вручную…</option>
+        </select>
+      </Field>
+      {v === "new" && (
+        <div className="grid grid-cols-[1fr_7rem] gap-2">
+          <Field label="Название факультета"><input name="facultyName" required minLength={5} maxLength={160} placeholder="Факультет международной информации" className={f} /></Field>
+          <Field label="Сокращение" hint="Для групп: 1ИМИ-01"><input name="facultyCode" required maxLength={8} pattern="[А-Яа-яЁёA-Za-z]{1,8}" placeholder="ИМИ" className={f} /></Field>
+        </div>
+      )}
+    </>
+  );
+}
+
 /** Логины и одноразовые пароли: показываются один раз, скачиваются файлом для выдачи (CSV, «;», UTF-8 с BOM — открывается в Excel). */
 export function CredsResult({ creds }: { creds: Cred[] }) {
   function download() {
@@ -77,7 +99,7 @@ export function CreateForm({ kind, faculties, departments, programs, groups, man
       <Field label={kind === "department" ? "ФИО сотрудника кафедры" : kind === "dean" ? "ФИО декана" : kind === "staff" ? "ФИО сотрудника" : kind === "supervisor" ? "ФИО преподавателя" : "ФИО"} hint="Фамилия Имя Отчество — логин соберётся сам">
         <input name="fio" required placeholder="Иванов Петр Владимирович" className={f} />
       </Field>
-      {kind === "dean" && <Field label="Факультет"><select name="facultyId" required className={f} defaultValue="">{[<option key="" value="" disabled>Выберите…</option>, ...faculties.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)]}</select></Field>}
+      {kind === "dean" && <FacultyPicker faculties={faculties} />}
       {kind === "staff" && (
         <>
           <Field label="Должность">
@@ -201,7 +223,7 @@ export function EditAccount({ mode, person, faculties = [], managers = [], label
       <form onSubmit={keepValues(action)} className="mt-3 space-y-3 rounded-lg border bg-muted/30 p-3">
         <input type="hidden" name="id" value={person.id} />
         {mode !== "self" && <Field label="ФИО" hint="Логин не меняется — человек входит по прежнему"><input name="fio" required defaultValue={person.fio} className={f} /></Field>}
-        {mode === "dean" && <Field label="Факультет"><select name="facultyId" required defaultValue={person.facultyId ?? ""} className={f}>{faculties.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select></Field>}
+        {mode === "dean" && <FacultyPicker faculties={faculties} defaultValue={person.facultyId} />}
         {mode === "staff" && !person.isHead && (
           <>
             <Field label="Должность"><input name="position" required list="positions-edit" defaultValue={person.position ?? ""} className={f} /><datalist id="positions-edit">{POSITIONS.map((p) => <option key={p} value={p} />)}</datalist></Field>

@@ -104,6 +104,27 @@ async function createLearner(user: CurrentUser, kind: "student" | "postgrad", fi
   return { login, password };
 }
 
+// ---------- факультет: из списка или новый, вписанный вручную ----------
+
+const NewFaculty = z.object({
+  facultyName: z.string().trim().min(5, "Название факультета — не короче 5 символов").max(160),
+  facultyCode: z.string().trim().regex(/^[А-ЯЁA-Z]{1,8}$/i, "Сокращение — 1–8 букв без пробелов, например ИМИ").transform((v) => v.toUpperCase()),
+});
+
+/** facultyId = "new" → создаётся факультет из полей «Название» и «Сокращение» (только проректор). */
+async function resolveFaculty(form: FormData): Promise<{ fac: { id: number; name: string } } | { error: string }> {
+  const raw = String(form.get("facultyId") ?? "");
+  if (raw !== "new") {
+    const fac = await db.faculty.findUnique({ where: { id: Number(raw) || -1 } });
+    return fac ? { fac } : { error: "Выберите факультет" };
+  }
+  const p = NewFaculty.safeParse(Object.fromEntries(form));
+  if (!p.success) return { error: p.error.issues[0].message };
+  const same = await db.faculty.findFirst({ where: { OR: [{ code: { equals: p.data.facultyCode, mode: "insensitive" } }, { name: { equals: p.data.facultyName, mode: "insensitive" } }] } });
+  if (same) return { error: `Такой факультет уже есть в списке: ${same.name} (${same.code}) — выберите его` };
+  return { fac: await db.faculty.create({ data: { name: p.data.facultyName, code: p.data.facultyCode } }) };
+}
+
 // ---------- создание по одному ----------
 
 export async function createAccount(_: AccState, form: FormData): Promise<AccState> {
@@ -121,9 +142,9 @@ export async function createAccount(_: AccState, form: FormData): Promise<AccSta
   const cardData = { staffDuties: card.duties || null, staffRoom: card.staffRoom || null, staffHours: card.staffHours || null, workPhone: card.workPhone || null };
 
   if (kind === "dean" && user.role === "RECTOR") {
-    const facultyId = Number(form.get("facultyId"));
-    const fac = await db.faculty.findUnique({ where: { id: facultyId } });
-    if (!fac) return { error: "Выберите факультет" };
+    const rf = await resolveFaculty(form);
+    if ("error" in rf) return { error: rf.error };
+    const fac = rf.fac;
     const busy = await db.person.findFirst({ where: { role: "DEAN_OFFICE", isHead: true, staffFacultyId: fac.id } });
     if (busy) return { error: `У факультета уже есть декан — ${busy.lastName} ${busy.firstName}${busy.middleName ? " " + busy.middleName : ""}. Двух деканов быть не может: сначала измените или удалите анкету текущего декана в списке ниже.` };
     // проректор вводит только ФИО и факультет; карточку для студентов декан заполнит сам
@@ -275,9 +296,9 @@ export async function updateAccount(_: EditState, form: FormData): Promise<EditS
 
   // декан — проректор меняет ФИО и факультет
   if (user.role === "RECTOR") {
-    const facultyId = Number(form.get("facultyId"));
-    const fac = await db.faculty.findUnique({ where: { id: facultyId } });
-    if (!fac) return { error: "Выберите факультет" };
+    const rf = await resolveFaculty(form);
+    if ("error" in rf) return { error: rf.error };
+    const fac = rf.fac;
     if (fac.id !== p.staffFacultyId) {
       const busy = await db.person.findFirst({ where: { role: "DEAN_OFFICE", isHead: true, staffFacultyId: fac.id, id: { not: id } } });
       if (busy) return { error: `У этого факультета уже есть декан — ${busy.lastName} ${busy.firstName}. Сначала измените или удалите анкету текущего декана.` };
