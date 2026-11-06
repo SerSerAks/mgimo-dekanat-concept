@@ -91,6 +91,14 @@ async function userOf(login: string) {
   check("кафедра управляет только аспирантами и руководителями своей кафедры", !ks.some((p) => ["student1", "student2", "supervisor1", "postgrad1"].includes(p.login)) && ks.some((p) => p.login === "supervisor_mp"), ks.map((p) => p.login).join(","));
   const s2id = (await db.person.findUniqueOrThrow({ where: { login: "student2" } })).id;
   check("деканат МО не может сбросить пароль студенту МП (поиск в области доступа)", !(await db.person.findFirst({ where: { AND: [{ id: s2id }, accountScope(deanMo)] } })));
+  // дерево деканата (SPEC §15)
+  const heads = await db.person.findMany({ where: accountScope(rector), select: { isHead: true } });
+  check("проректор управляет только деканами (не их подчинёнными)", heads.length > 0 && heads.every((h) => h.isHead), `${heads.length} шт.`);
+  const deanStaff = (await db.person.findMany({ where: { AND: [accountScope(deanMo), { role: "DEAN_OFFICE" }] }, select: { login: true } })).map((p) => p.login);
+  check("декан МО управляет всем своим деканатом, но не деканатом МП", deanStaff.includes("mo_zam_study") && deanStaff.includes("mo_spec_12") && !deanStaff.includes("mp_spec") && !deanStaff.includes("dean_mo"), deanStaff.join(","));
+  const zam = await userOf("mo_zam_study");
+  const zamStaff = (await db.person.findMany({ where: { AND: [accountScope(zam), { role: "DEAN_OFFICE" }] }, select: { login: true } })).map((p) => p.login).sort();
+  check("заместитель управляет только прямыми подчинёнными", JSON.stringify(zamStaff) === JSON.stringify(["mo_spec_12", "mo_spec_34"]), zamStaff.join(","));
   check("студент не управляет аккаунтами", (await db.person.count({ where: accountScope(s1) })) === 0);
 
   console.log(failed ? `\nПровалено проверок: ${failed}` : "\nВсе проверки доступа пройдены");

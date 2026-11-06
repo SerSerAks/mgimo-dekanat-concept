@@ -104,10 +104,14 @@ export function accountScope(user: CurrentUser): Prisma.PersonWhereInput {
   const none = { id: "__none__" };
   switch (user.role) {
     case "RECTOR":
-      return { role: "DEAN_OFFICE" };
+      return { role: "DEAN_OFFICE", isHead: true }; // проректор — только деканы
     case "DEAN_OFFICE":
       if (user.staffFacultyId == null) return none;
       return { OR: [
+        // сотрудники деканата: декан — все своего факультета, остальные — только прямые подчинённые (SPEC §15)
+        user.isHead
+          ? { role: "DEAN_OFFICE", staffFacultyId: user.staffFacultyId, id: { not: user.id } }
+          : { role: "DEAN_OFFICE", managerId: user.id },
         { role: "DEPARTMENT", staffDepartment: { facultyId: user.staffFacultyId } },
         { role: "STUDENT", enrollments: { some: { facultyId: user.staffFacultyId, level: { in: ["BACHELOR", "MASTER"] }, status: "ACTIVE" } } },
       ] };
@@ -126,7 +130,7 @@ export function accountScope(user: CurrentUser): Prisma.PersonWhereInput {
 export function creatableKinds(user: CurrentUser) {
   switch (user.role) {
     case "RECTOR": return ["dean"] as const;
-    case "DEAN_OFFICE": return ["student", "department"] as const;
+    case "DEAN_OFFICE": return ["student", "staff", "department"] as const;
     case "DEPARTMENT": return ["postgrad", "supervisor"] as const;
     default: return [] as const;
   }

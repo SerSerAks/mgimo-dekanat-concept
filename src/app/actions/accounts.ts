@@ -94,13 +94,30 @@ export async function createAccount(_: AccState, form: FormData): Promise<AccSta
   if (!fio) return { error: "Введите ФИО полностью: Фамилия Имя Отчество" };
   const reserved = new Set<string>();
 
+  // карточка сотрудника деканата — видна студентам в «Мой деканат» (SPEC §15)
+  const card = z.object({
+    position: z.string().trim().max(80).optional(), duties: z.string().trim().max(300).optional(),
+    staffRoom: z.string().trim().max(60).optional(), staffHours: z.string().trim().max(80).optional(), workPhone: z.string().trim().max(40).optional(),
+  }).parse(Object.fromEntries(form));
+  const cardData = { staffDuties: card.duties || null, staffRoom: card.staffRoom || null, staffHours: card.staffHours || null, workPhone: card.workPhone || null };
+
   if (kind === "dean" && user.role === "RECTOR") {
     const facultyId = Number(form.get("facultyId"));
     const fac = await db.faculty.findUnique({ where: { id: facultyId } });
     if (!fac) return { error: "Выберите факультет" };
-    const r = await newPerson({ fio, role: "DEAN_OFFICE", createdById: user.id, extra: { staffFacultyId: fac.id } }, reserved);
+    if (await db.person.findFirst({ where: { role: "DEAN_OFFICE", isHead: true, staffFacultyId: fac.id } })) return { error: "У этого факультета уже есть декан" };
+    const r = await newPerson({ fio, role: "DEAN_OFFICE", createdById: user.id, extra: { staffFacultyId: fac.id, isHead: true, position: "Декан факультета", ...cardData } }, reserved);
     revalidatePath("/staff/accounts");
-    return { creds: [{ fio: fioText(fio), login: r.login, password: r.password, note: `Деканат: ${fac.name}` }] };
+    return { creds: [{ fio: fioText(fio), login: r.login, password: r.password, note: `Декан: ${fac.name}` }] };
+  }
+  if (kind === "staff" && user.role === "DEAN_OFFICE" && user.staffFacultyId != null) {
+    if (!card.position || card.position.length < 3) return { error: "Укажите должность" };
+    // руководитель — сам создатель или сотрудник из его области управления
+    const managerId = String(form.get("managerId") || user.id);
+    if (managerId !== user.id && !(await db.person.findFirst({ where: { AND: [{ id: managerId, role: "DEAN_OFFICE" }, accountScope(user)] } }))) return { error: "Такого руководителя выбрать нельзя" };
+    const r = await newPerson({ fio, role: "DEAN_OFFICE", createdById: user.id, extra: { staffFacultyId: user.staffFacultyId, position: card.position, managerId, ...cardData } }, reserved);
+    revalidatePath("/staff/accounts");
+    return { creds: [{ fio: fioText(fio), login: r.login, password: r.password, note: card.position }] };
   }
   if (kind === "department" && user.role === "DEAN_OFFICE" && user.staffFacultyId != null) {
     const depId = String(form.get("departmentId") ?? "");

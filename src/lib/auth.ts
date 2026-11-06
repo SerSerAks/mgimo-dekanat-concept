@@ -44,7 +44,7 @@ export const getCurrentUser = cache(async () => {
       person: {
         select: {
           id: true, login: true, role: true, lastName: true, firstName: true, middleName: true,
-          avatarColor: true, staffFacultyId: true, staffDepartmentId: true, mustChangePassword: true,
+          avatarColor: true, staffFacultyId: true, staffDepartmentId: true, mustChangePassword: true, isHead: true,
           enrollments: {
             where: { status: "ACTIVE" },
             take: 1,

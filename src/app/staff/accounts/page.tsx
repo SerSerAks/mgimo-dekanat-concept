@@ -4,8 +4,10 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { accountScope, creatableKinds } from "@/lib/access";
 import { CreateForm, BulkUpload, ResetButton } from "./account-forms";
+import { deanTree } from "@/lib/dean-tree";
+import { DeanTreeView } from "@/components/dean-tree-view";
 
-const KIND = { dean: "Деканаты", department: "Кафедры", student: "Студенты", postgrad: "Аспиранты", supervisor: "Преподаватели" } as const;
+const KIND = { dean: "Деканы", staff: "Сотрудники деканата", department: "Кафедры", student: "Студенты", postgrad: "Аспиранты", supervisor: "Преподаватели" } as const;
 type Kind = keyof typeof KIND;
 const LEVEL = { BACHELOR: "бакалавр", MASTER: "магистрант", POSTGRAD: "аспирант" } as const;
 
@@ -18,6 +20,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
 
   const byKind: Record<Kind, Prisma.PersonWhereInput> = {
     dean: { role: "DEAN_OFFICE" },
+    staff: { role: "DEAN_OFFICE" },
     department: { role: "DEPARTMENT" },
     student: { role: "STUDENT", enrollments: { some: { level: { in: ["BACHELOR", "MASTER"] }, status: "ACTIVE" } } },
     postgrad: { role: "STUDENT", enrollments: { some: { level: "POSTGRAD", status: "ACTIVE" } } },
@@ -39,6 +42,11 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
     db.person.findUniqueOrThrow({ where: { id: user.id }, include: { staffFaculty: true, staffDepartment: true } }),
   ]);
   const unit = own.staffDepartment?.name ?? own.staffFaculty?.name ?? "МГИМО";
+  // дерево деканата и кого из него можно выбрать руководителем / кому сбросить пароль
+  const tree = kind === "staff" && user.staffFacultyId != null ? await deanTree(user.staffFacultyId, true) : [];
+  const managed = new Set(kind === "staff" ? (await db.person.findMany({ where: { AND: [accountScope(user), { role: "DEAN_OFFICE" }] }, select: { id: true } })).map((p) => p.id) : []);
+  const managers = kind === "staff" ? [{ id: user.id, label: `Я — ${own.lastName} ${own.firstName}${own.position ? `, ${own.position.toLowerCase()}` : ""}` },
+    ...(await db.person.findMany({ where: { id: { in: [...managed] } }, orderBy: { lastName: "asc" } })).map((p) => ({ id: p.id, label: `${p.lastName} ${p.firstName}${p.position ? `, ${p.position.toLowerCase()}` : ""}` }))] : [];
 
   return (
     <div className="space-y-5">
@@ -59,7 +67,8 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
             faculties={faculties.map((f) => ({ id: f.id, label: `${f.name}${f.staff.length ? ` · уже есть ${f.staff.length}` : ""}` }))}
             departments={departments.map((d) => ({ id: d.id, label: d.name }))}
             programs={programs.map((p) => ({ id: p.id, label: `${p.specialtyCode ? p.specialtyCode + " " : ""}${p.direction}${p.name ? ` — ${p.name}` : ""}`, level: p.level }))}
-            groups={groups.map((g) => ({ id: g.id, label: g.name, level: g.level, course: g.course }))} />
+            groups={groups.map((g) => ({ id: g.id, label: g.name, level: g.level, course: g.course }))}
+            managers={managers} />
         </div>
         {(kind === "student" || kind === "postgrad") && (
           <div className="min-w-0 rounded-lg border p-4">
@@ -72,6 +81,13 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
         )}
       </section>
 
+      {kind === "staff" ? (
+        <section>
+          <h2 className="mb-2 font-semibold text-navy">Структура деканата</h2>
+          <p className="mb-3 text-sm text-muted-foreground">Так её видят студенты в разделе «Мой деканат» (без логинов).{own.isHead ? " Вы — декан: можете сбросить пароль любому сотруднику." : " Сбросить пароль можно своим прямым подчинённым."}</p>
+          {tree.length ? <DeanTreeView nodes={tree} action={(n) => managed.has(n.id) ? <div className="mt-2"><ResetButton id={n.id} /></div> : null} /> : <p className="rounded-lg border p-4 text-sm text-muted-foreground">В деканате пока никого нет.</p>}
+        </section>
+      ) : (
       <section>
         <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
           <h2 className="font-semibold text-navy">{KIND[kind]} · {total}</h2>
@@ -103,6 +119,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
           </ul>
         )}
       </section>
+      )}
     </div>
   );
 }

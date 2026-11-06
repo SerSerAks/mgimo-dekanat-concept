@@ -3,7 +3,7 @@ import type { NavItem } from "@/components/nav";
 // Меню сотрудников по ролям (порядок важен: на телефоне видны первые 4 + «Ещё»).
 export const STAFF_NAV: Record<string, NavItem[]> = {
   RECTOR: [
-    { href: "/staff/accounts", label: "Деканаты", icon: "users" },
+    { href: "/staff/accounts", label: "Деканы", icon: "users" },
   ],
   DEAN_OFFICE: [
     { href: "/staff/requests", label: "Заявки", icon: "inbox" },

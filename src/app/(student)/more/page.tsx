@@ -4,6 +4,7 @@ import { logout } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 
 const LINKS = [
+  ["/dekanat", "Мой деканат"],
   ["/profile", "Профиль"],
   ["/notifications", "Уведомления"],
   ["/antiplagiat", "Антиплагиат"],

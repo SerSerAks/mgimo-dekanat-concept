@@ -54,16 +54,35 @@ function LearnerParams({ kind, programs, groups }: { kind: "student" | "postgrad
   );
 }
 
-export function CreateForm({ kind, faculties, departments, programs, groups }: { kind: string; faculties: Opt[]; departments: Opt[]; programs: Opt[]; groups: Opt[] }) {
+export function CreateForm({ kind, faculties, departments, programs, groups, managers = [] }: { kind: string; faculties: Opt[]; departments: Opt[]; programs: Opt[]; groups: Opt[]; managers?: { id: string; label: string }[] }) {
   const [state, action, pending] = useActionState<AccState, FormData>(createAccount, undefined);
   const [newDep, setNewDep] = useState(false);
   return (
     <form action={action} className="space-y-3" key={state?.creds?.[0]?.login ?? "form"}>
       <input type="hidden" name="kind" value={kind} />
-      <Field label={kind === "department" ? "ФИО сотрудника кафедры" : kind === "dean" ? "ФИО сотрудника деканата" : kind === "supervisor" ? "ФИО преподавателя" : "ФИО"} hint="Фамилия Имя Отчество — логин соберётся сам">
+      <Field label={kind === "department" ? "ФИО сотрудника кафедры" : kind === "dean" ? "ФИО декана" : kind === "staff" ? "ФИО сотрудника" : kind === "supervisor" ? "ФИО преподавателя" : "ФИО"} hint="Фамилия Имя Отчество — логин соберётся сам">
         <input name="fio" required placeholder="Иванов Петр Владимирович" className={f} />
       </Field>
       {kind === "dean" && <Field label="Факультет"><select name="facultyId" required className={f} defaultValue="">{[<option key="" value="" disabled>Выберите…</option>, ...faculties.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)]}</select></Field>}
+      {kind === "staff" && (
+        <>
+          <Field label="Должность">
+            <input name="position" required list="positions" placeholder="Заместитель декана по учебной работе" className={f} />
+            <datalist id="positions">{["Заместитель декана по учебной работе", "Заместитель декана по работе со студентами", "Специалист по учебной работе", "Методист", "Секретарь деканата"].map((p) => <option key={p} value={p} />)}</datalist>
+          </Field>
+          <Field label="Руководитель в структуре"><select name="managerId" className={f} defaultValue={managers[0]?.id}>{managers.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></Field>
+        </>
+      )}
+      {(kind === "staff" || kind === "dean") && (
+        <>
+          <Field label="За что отвечает" hint="Это увидят студенты: «1–2 курс, справки и расписание»"><input name="duties" maxLength={300} className={f} /></Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Кабинет"><input name="staffRoom" maxLength={60} placeholder="каб. 214" className={f} /></Field>
+            <Field label="Часы приёма"><input name="staffHours" maxLength={80} placeholder="пн–чт 10:00–17:00" className={f} /></Field>
+          </div>
+          <Field label="Рабочий телефон"><input name="workPhone" maxLength={40} placeholder="+7 (000) 000-00-00, доб. 000" className={f} /></Field>
+        </>
+      )}
       {kind === "department" && (newDep
         ? <Field label="Название новой кафедры"><input name="departmentName" minLength={5} maxLength={160} required className={f} /></Field>
         : <Field label="Кафедра"><select name="departmentId" required className={f} defaultValue="">{[<option key="" value="" disabled>Выберите…</option>, ...departments.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)]}</select></Field>)}

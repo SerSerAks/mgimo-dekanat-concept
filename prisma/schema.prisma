@@ -189,6 +189,16 @@ model Person {
   createdById         String?
   createdBy           Person?             @relation("CreatedAccounts", fields: [createdById], references: [id])
   createdAccounts     Person[]            @relation("CreatedAccounts")
+  // структура деканата (SPEC §15)
+  position            String? // должность: Декан, Заместитель декана…
+  isHead              Boolean             @default(false) // руководитель подразделения (декан)
+  managerId           String?
+  manager             Person?             @relation("Reports", fields: [managerId], references: [id])
+  reports             Person[]            @relation("Reports")
+  staffDuties         String? // за что отвечает — видят студенты
+  staffRoom           String?
+  staffHours          String?
+  workPhone           String? // вымышленный
 }
 
 model Session {
