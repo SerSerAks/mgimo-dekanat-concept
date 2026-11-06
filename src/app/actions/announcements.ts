@@ -85,8 +85,15 @@ export async function updateAnnouncement(_: EditAnnState, form: FormData): Promi
   let legacy = { count: 0 };
   if (byKey.count === 0) {
     const oldTitle = `${a.important ? "Важно: " : ""}${a.title}`;
+    // только адресаты этого объявления (та же выборка, что при публикации) и только уведомления, созданные вместе с ним
+    const narrow: Prisma.EnrollmentWhereInput = a.groupId ? { groupId: a.groupId } : a.course ? { course: a.course } : {};
+    const recipients = await db.enrollment.findMany({ where: { AND: [enrollmentScope(user), narrow] }, select: { personId: true } });
     legacy = await db.notification.updateMany({
-      where: { type: "announcement", dedupeKey: null, title: { in: [oldTitle, `${oldTitle} (исправлено)`] }, body: a.body.slice(0, 300), createdAt: { gte: new Date(a.publishedAt.getTime() - 60_000) } },
+      where: {
+        type: "announcement", dedupeKey: null, personId: { in: recipients.map((r) => r.personId) },
+        title: { in: [oldTitle, `${oldTitle} (исправлено)`] }, body: a.body.slice(0, 300),
+        createdAt: { gte: new Date(a.publishedAt.getTime() - 60_000), lte: new Date(a.publishedAt.getTime() + 60_000) },
+      },
       data,
     });
   }
