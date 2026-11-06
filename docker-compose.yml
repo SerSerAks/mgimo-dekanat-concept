@@ -1,0 +1,15 @@
+# Локальная база для разработки. На хостинге используется управляемый PostgreSQL.
+name: dekanat
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dekanat
+      POSTGRES_USER: dekanat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+    ports:
+      - "5433:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+volumes:
+  dbdata:

@@ -1,0 +1,537 @@
+// Схема данных «Цифрового деканата» (концепт). Описание сущностей — docs/SPEC.md, разделы 2, 6, 9.
+// Все персональные данные в БД вымышленные.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  DEAN_OFFICE
+  SUPERVISOR
+  DEPARTMENT
+}
+
+enum Level {
+  BACHELOR
+  MASTER
+  POSTGRAD
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  GRADUATED
+  TRANSFERRING
+  EXPELLED
+}
+
+enum ControlType {
+  EXAM
+  CREDIT
+  GRADED_CREDIT
+}
+
+enum LessonChange {
+  NONE
+  MOVED
+  ROOM
+  TEACHER
+  CANCELLED
+}
+
+enum RequestStatus {
+  NEW
+  IN_PROGRESS
+  NEEDS_INFO
+  READY
+  ISSUED
+  REJECTED
+  CANCELLED
+}
+
+enum ChapterStatus {
+  DRAFT
+  ON_REVIEW
+  NEEDS_FIX
+  ACCEPTED
+}
+
+enum TopicStatus {
+  NONE
+  PENDING
+  APPROVED
+  RETURNED
+}
+
+enum Admission {
+  PENDING
+  ADMITTED
+  NOT_ADMITTED
+}
+
+// ---------- Справочники ----------
+
+model Faculty {
+  id              Int              @id @default(autoincrement())
+  code            String           @unique // МО, МП, МЭО...
+  name            String
+  campus          String           @default("Москва")
+  pairGrid        String           @default("A") // A: МО, ФУП, МЖ; B: МЭО, МП, МБ, ИМТУР (см. research §3)
+  departments     Department[]
+  groups          Group[]
+  enrollments     Enrollment[]
+  programs        Program[]
+  staff           Person[]         @relation("StaffFaculty")
+  announcements   Announcement[]
+  practicePeriods PracticePeriod[]
+}
+
+model Department {
+  id            Int            @id @default(autoincrement())
+  name          String
+  facultyId     Int
+  faculty       Faculty        @relation(fields: [facultyId], references: [id])
+  staff         Person[]       @relation("StaffDepartment")
+  teachers      Teacher[]
+  theses        Thesis[]
+  topics        ThesisTopic[]
+  announcements Announcement[]
+}
+
+model Program {
+  id            Int               @id @default(autoincrement())
+  level         Level
+  campus        String
+  facultyLabel  String // как в источнике: «МО», «ДА», «не указан в источнике»
+  facultyId     Int?
+  faculty       Faculty?          @relation(fields: [facultyId], references: [id])
+  specialtyCode String? // шифр научной специальности (аспирантура)
+  direction     String
+  name          String
+  budget        Int?
+  target        Int?
+  contract      Int?
+  source        String
+  enrollments   Enrollment[]
+  favorites     ProgramFavorite[]
+  practices     PracticePeriod[]
+}
+
+model Group {
+  id            Int            @id @default(autoincrement())
+  name          String         @unique // 1МО-01, 2МагГУ-01
+  ruzId         Int?
+  level         Level
+  course        Int
+  facultyId     Int
+  faculty       Faculty        @relation(fields: [facultyId], references: [id])
+  lessons       Lesson[]
+  exams         Exam[]
+  enrollments   Enrollment[]
+  announcements Announcement[]
+}
+
+model Teacher {
+  id           Int         @id @default(autoincrement())
+  name         String // вымышленное ФИО
+  title        String? // доцент, профессор
+  departmentId Int?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  lessons      Lesson[]
+}
+
+// ---------- Люди и доступ ----------
+
+model Person {
+  id                String      @id @default(cuid())
+  login             String      @unique
+  passwordHash      String
+  role              Role
+  lastName          String
+  firstName         String
+  middleName        String?
+  phone             String?
+  personalEmail     String?
+  avatarColor       String      @default("#162256")
+  // сотрудники: к какому подразделению привязан доступ
+  staffFacultyId    Int?
+  staffFaculty      Faculty?    @relation("StaffFaculty", fields: [staffFacultyId], references: [id])
+  staffDepartmentId Int?
+  staffDepartment   Department? @relation("StaffDepartment", fields: [staffDepartmentId], references: [id])
+  showPastToStaff   Boolean     @default(false) // разрешить сотрудникам видеть итог прошлых ступеней
+  createdAt         DateTime    @default(now())
+
+  sessions          Session[]
+  enrollments       Enrollment[]       @relation("StudentEnrollments")
+  supervised        Enrollment[]       @relation("Supervisor")
+  notifications     Notification[]
+  portfolio         PortfolioItem[]
+  favorites         ProgramFavorite[]
+  comments          ThesisComment[]
+  requestEvents     RequestEvent[]
+  announcements     Announcement[]
+  announcementReads AnnouncementRead[]
+  offeredTopics     ThesisTopic[]
+}
+
+model Session {
+  id        String   @id // sha256 от токена; сам токен хранится только в cookie
+  personId  String
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([personId])
+}
+
+model LoginAttempt {
+  id        Int      @id @default(autoincrement())
+  login     String
+  ip        String
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  @@index([login, createdAt])
+  @@index([ip, createdAt])
+}
+
+// ---------- Ступень обучения ----------
+
+model Enrollment {
+  id               String           @id @default(cuid())
+  personId         String
+  person           Person           @relation("StudentEnrollments", fields: [personId], references: [id])
+  level            Level
+  status           EnrollmentStatus @default(ACTIVE)
+  programId        Int?
+  program          Program?         @relation(fields: [programId], references: [id])
+  facultyId        Int
+  faculty          Faculty          @relation(fields: [facultyId], references: [id])
+  groupId          Int?
+  group            Group?           @relation(fields: [groupId], references: [id])
+  languageSubgroup String? // «японский первый» — фильтр языковых пар
+  course           Int
+  studyForm        String           @default("очная")
+  funding          String           @default("бюджет")
+  studentCardNo    String // вымышленный номер
+  startDate        DateTime
+  endDate          DateTime?
+  finalGpa         Float?
+  supervisorId     String?
+  supervisor       Person?          @relation("Supervisor", fields: [supervisorId], references: [id])
+
+  grades            Grade[]
+  requests          Request[]
+  thesis            Thesis?
+  planItems         PlanItem[]
+  antiplagiatChecks AntiplagiatCheck[]
+
+  @@index([personId, status])
+  @@index([facultyId])
+  @@index([supervisorId])
+}
+
+// ---------- Учёба ----------
+
+model Lesson {
+  id             Int          @id @default(autoincrement())
+  groupId        Int
+  group          Group        @relation(fields: [groupId], references: [id])
+  date           DateTime     @db.Date
+  start          String // "09:00"
+  end            String
+  discipline     String
+  kind           String // Лекция / семинар
+  auditorium     String
+  building       String
+  subgroup       String? // языковая подгруппа
+  teacherId      Int?
+  teacher        Teacher?     @relation(fields: [teacherId], references: [id])
+  change         LessonChange @default(NONE)
+  changeNote     String?
+  prevDate       DateTime?    @db.Date
+  prevStart      String?
+  prevAuditorium String?
+  changedAt      DateTime?
+  source         String       @default("RUZ") // RUZ — импорт открытых данных; SEED — вымышленное изменение
+
+  @@index([groupId, date])
+}
+
+model Exam {
+  id         Int      @id @default(autoincrement())
+  groupId    Int
+  group      Group    @relation(fields: [groupId], references: [id])
+  discipline String
+  kind       String // Экзамен / Консультация / Пересдача
+  at         DateTime
+  auditorium String
+  building   String
+}
+
+model Grade {
+  id           Int         @id @default(autoincrement())
+  enrollmentId String
+  enrollment   Enrollment  @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  semester     Int // номер семестра на ступени
+  discipline   String
+  controlType  ControlType
+  components   Json // [{name, max, score}] — из чего сложился балл
+  score        Int? // итоговый рейтинговый балл из 100
+  mark         String? // "5", "4", "зачтено", "не зачтено", "неявка"
+  ects         String?
+  isDebt       Boolean     @default(false)
+  updatedAt    DateTime    @updatedAt
+
+  @@index([enrollmentId, semester])
+}
+
+// ---------- Заявки ----------
+
+model Request {
+  id           String         @id @default(cuid())
+  number       Int            @unique @default(autoincrement())
+  enrollmentId String
+  enrollment   Enrollment     @relation(fields: [enrollmentId], references: [id])
+  type         String // код из docs/content/requests.md
+  status       RequestStatus  @default(NEW)
+  payload      Json
+  delivery     String         @default("в деканате")
+  pickupPlace  String?
+  dueDate      DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  events       RequestEvent[]
+
+  @@index([enrollmentId])
+  @@index([status])
+}
+
+model RequestEvent {
+  id        Int           @id @default(autoincrement())
+  requestId String
+  request   Request       @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  status    RequestStatus
+  comment   String?
+  authorId  String?
+  author    Person?       @relation(fields: [authorId], references: [id])
+  createdAt DateTime      @default(now())
+}
+
+// ---------- ВКР / диссертация ----------
+
+model Thesis {
+  id             String          @id @default(cuid())
+  enrollmentId   String          @unique
+  enrollment     Enrollment      @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  departmentId   Int
+  department     Department      @relation(fields: [departmentId], references: [id])
+  topic          String?
+  annotation     String?
+  topicStatus    TopicStatus     @default(NONE)
+  stage          Int             @default(1) // 1..10, см. SPEC §6.2
+  originality    Int?
+  predefenseAt   DateTime?
+  predefenseRoom String?
+  admission      Admission       @default(PENDING)
+  admissionNote  String?
+  reviewText     String?
+  chapters       Chapter[]
+  comments       ThesisComment[]
+  events         ThesisEvent[]
+}
+
+model ThesisTopic {
+  id           Int        @id @default(autoincrement())
+  departmentId Int
+  department   Department @relation(fields: [departmentId], references: [id])
+  title        String
+  description  String
+  level        Level
+  supervisorId String?
+  supervisor   Person?    @relation(fields: [supervisorId], references: [id])
+  taken        Boolean    @default(false)
+}
+
+model Chapter {
+  id       String           @id @default(cuid())
+  thesisId String
+  thesis   Thesis           @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  order    Int
+  title    String
+  status   ChapterStatus    @default(DRAFT)
+  dueDate  DateTime?
+  versions ChapterVersion[]
+  comments ThesisComment[]
+}
+
+model ChapterVersion {
+  id         String   @id @default(cuid())
+  chapterId  String
+  chapter    Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  fileName   String
+  fileSize   Int
+  storageKey String
+  createdAt  DateTime @default(now())
+}
+
+model ThesisComment {
+  id        String   @id @default(cuid())
+  thesisId  String
+  thesis    Thesis   @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  chapterId String?
+  chapter   Chapter? @relation(fields: [chapterId], references: [id])
+  authorId  String
+  author    Person   @relation(fields: [authorId], references: [id])
+  body      String
+  createdAt DateTime @default(now())
+}
+
+model ThesisEvent {
+  id       Int      @id @default(autoincrement())
+  thesisId String
+  thesis   Thesis   @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  stage    Int
+  note     String?
+  at       DateTime @default(now())
+}
+
+// ---------- Индивидуальный план аспиранта ----------
+
+model PlanItem {
+  id           String     @id @default(cuid())
+  enrollmentId String
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  category     String // Кандидатский экзамен / Публикация / Педпрактика / Диссертация / Аттестация
+  title        String
+  dueDate      DateTime?
+  done         Boolean    @default(false)
+  approved     Boolean    @default(false) // согласовано руководителем
+}
+
+// ---------- Коммуникации ----------
+
+model Notification {
+  id        String    @id @default(cuid())
+  personId  String
+  person    Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+  type      String // schedule | request | thesis | announcement | deadline | system
+  title     String
+  body      String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([personId, readAt])
+}
+
+model Announcement {
+  id           String             @id @default(cuid())
+  authorId     String
+  author       Person             @relation(fields: [authorId], references: [id])
+  title        String
+  body         String
+  important    Boolean            @default(false)
+  // адресация: заполненные поля сужают аудиторию
+  facultyId    Int?
+  faculty      Faculty?           @relation(fields: [facultyId], references: [id])
+  departmentId Int?
+  department   Department?        @relation(fields: [departmentId], references: [id])
+  groupId      Int?
+  group        Group?             @relation(fields: [groupId], references: [id])
+  course       Int?
+  level        Level?
+  publishedAt  DateTime           @default(now())
+  reads        AnnouncementRead[]
+}
+
+model AnnouncementRead {
+  personId       String
+  announcementId String
+  person         Person       @relation(fields: [personId], references: [id], onDelete: Cascade)
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  readAt         DateTime     @default(now())
+
+  @@id([personId, announcementId])
+}
+
+// ---------- Сквозной путь ----------
+
+model PortfolioItem {
+  id       String   @id @default(cuid())
+  personId String
+  person   Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  type     String // Олимпиада / Публикация / Конференция / Стажировка / Грант
+  title    String
+  date     DateTime
+  details  String?
+}
+
+model ProgramFavorite {
+  personId  String
+  programId Int
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  program   Program  @relation(fields: [programId], references: [id])
+  checklist Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  @@id([personId, programId])
+}
+
+// ---------- Мероприятия МГИМО (снимок открытых анонсов mgimo.ru) ----------
+
+model Event {
+  id      Int      @id @default(autoincrement())
+  date    DateTime @db.Date
+  time    String?
+  place   String?
+  title   String
+  summary String
+  url     String   @unique
+}
+
+// ---------- Практика: сроки настраиваются по факультету и направлению ----------
+
+model PracticePeriod {
+  id           Int       @id @default(autoincrement())
+  facultyId    Int
+  faculty      Faculty   @relation(fields: [facultyId], references: [id])
+  programId    Int? // null — для всех направлений факультета
+  program      Program?  @relation(fields: [programId], references: [id])
+  level        Level
+  course       Int
+  kind         String // Учебная / Производственная / Преддипломная
+  title        String
+  startDate    DateTime  @db.Date
+  endDate      DateTime  @db.Date
+  docsDeadline DateTime? @db.Date // срок согласования места практики
+  note         String?
+
+  @@index([facultyId, level, course])
+}
+
+// ---------- Антиплагиат (ДОПУЩЕНИЕ: проверка имитируется, интеграции нет) ----------
+
+enum CheckStatus {
+  QUEUED
+  DONE
+}
+
+model AntiplagiatCheck {
+  id           String      @id @default(cuid())
+  enrollmentId String
+  enrollment   Enrollment  @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  workTitle    String
+  fileName     String
+  fileSize     Int
+  status       CheckStatus @default(QUEUED)
+  originality  Int?
+  createdAt    DateTime    @default(now())
+  checkedAt    DateTime?
+}

@@ -1,0 +1,14 @@
+node_modules/
+.next/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+/out/
+/build/
+next-env.d.ts
+*.tsbuildinfo
+/src/generated/
+.demo-accounts.local.md
+*.local.md

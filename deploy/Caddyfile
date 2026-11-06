@@ -1,0 +1,14 @@
+# HTTPS-сертификаты Let's Encrypt выпускаются автоматически.
+# Основной адрес — lkstudenta.ru; sslip.io — запасной, пока DNS домена не настроен.
+lkstudenta.ru, 83-141-92-172.sslip.io {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy app:3000
+}
+
+www.lkstudenta.ru {
+	redir https://lkstudenta.ru{uri} permanent
+}

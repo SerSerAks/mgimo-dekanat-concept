@@ -1,0 +1,49 @@
+# Боевой запуск на сервере. Наружу открыт только Caddy (80/443); база и приложение — во внутренней сети.
+name: dekanat
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dekanat
+      POSTGRES_USER: dekanat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?нет POSTGRES_PASSWORD в .env}
+    volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dekanat -d dekanat"]
+      interval: 5s
+      retries: 10
+
+  app:
+    build: { context: .., target: runner }
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://dekanat:${POSTGRES_PASSWORD}@db:5432/dekanat
+      APP_SECRET: ${APP_SECRET:?нет APP_SECRET в .env}
+      AI_API_KEY: ${AI_API_KEY:-}
+    depends_on: { db: { condition: service_healthy } }
+
+  # разовые команды: docker compose run --rm tools npx prisma migrate deploy
+  tools:
+    build: { context: .., target: tools }
+    profiles: [tools]
+    environment:
+      DATABASE_URL: postgresql://dekanat:${POSTGRES_PASSWORD}@db:5432/dekanat
+      NODE_ENV: production
+    volumes: [./out:/app/out]
+    depends_on: { db: { condition: service_healthy } }
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [app]
+
+volumes:
+  dbdata:
+  caddy_data:
+  caddy_config:
