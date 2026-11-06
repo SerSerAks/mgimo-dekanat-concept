@@ -21,7 +21,8 @@ async function userOf(login: string) {
 }
 
 (async () => {
-  const { enrollmentScope, requestScope, thesisScope, gradeScope, supervisorRequestScope, canChooseSupervisor } = await import("../src/lib/access");
+  const { enrollmentScope, requestScope, thesisScope, gradeScope, supervisorRequestScope, canChooseSupervisor, campaignScope } = await import("../src/lib/access");
+  const { campaignsFor } = await import("../src/lib/campaigns");
   const names = async (where: object) => (await db.enrollment.findMany({ where, include: { person: true } })).map((e) => e.person.login).sort();
 
   const s1 = await userOf("student1");
@@ -70,6 +71,14 @@ async function userOf(login: string) {
   const s3e = await db.enrollment.findFirstOrThrow({ where: { person: { login: "student3" }, status: "ACTIVE" } });
   const s1e = await db.enrollment.findFirstOrThrow({ where: { person: { login: "student1" }, status: "ACTIVE" } });
   check("выбирать руководителя может 3 курс без руководителя, но не 1 курс", canChooseSupervisor(s3e) === !s3e.supervisorId && !canChooseSupervisor(s1e));
+
+  // кампании по учебному плану (SPEC §13)
+  const moCamps = await db.supervisionCampaign.findMany({ where: campaignScope(deanMo), include: { faculty: true } });
+  check("деканат МО не видит кампании ФУП", moCamps.every((c) => c.faculty.code === "МО"), `${moCamps.length} шт.`);
+  check("руководитель не управляет кампаниями через деканатскую область", (await db.supervisionCampaign.count({ where: campaignScope(sup) })) === 0);
+  const s3camps = await campaignsFor(db, s3e);
+  check("student3 (3 курс) попадает в кампанию курсовых 3 курса, а не в ВКР", s3camps.length > 0 && s3camps.every((c) => c.course === 3 && c.workType === "COURSEWORK"));
+  check("student1 (1 курс) не попадает ни в одну кампанию", (await campaignsFor(db, s1e)).length === 0);
 
   console.log(failed ? `\nПровалено проверок: ${failed}` : "\nВсе проверки доступа пройдены");
   await db.$disconnect();

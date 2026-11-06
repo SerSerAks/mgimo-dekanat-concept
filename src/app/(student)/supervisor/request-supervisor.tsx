@@ -4,13 +4,14 @@ import { useActionState, useState } from "react";
 import { sendSupervisorRequest, type SupState } from "@/app/actions/supervision";
 import { Button } from "@/components/ui/button";
 
-export function RequestSupervisor({ supervisorId, name }: { supervisorId: string; name: string }) {
+export function RequestSupervisor({ campaignId, supervisorId, name }: { campaignId: number; supervisorId: string; name: string }) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState<SupState, FormData>(sendSupervisorRequest, undefined);
   if (state?.ok) return <p role="status" className="mt-3 text-sm font-semibold text-status-ok">Заявка отправлена. Ответ придёт уведомлением.</p>;
   if (!open) return <Button type="button" className="mt-3 h-11" onClick={() => setOpen(true)}>Отправить заявку</Button>;
   return (
     <form action={action} className="mt-3 space-y-3 border-t pt-3">
+      <input type="hidden" name="campaignId" value={campaignId} />
       <input type="hidden" name="supervisorId" value={supervisorId} />
       <div className="space-y-1.5">
         <label htmlFor={`t-${supervisorId}`} className="text-sm font-medium">Предлагаемая тема</label>

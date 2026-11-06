@@ -78,18 +78,19 @@ enum Admission {
 // ---------- Справочники ----------
 
 model Faculty {
-  id              Int              @id @default(autoincrement())
-  code            String           @unique // МО, МП, МЭО...
+  id              Int                   @id @default(autoincrement())
+  code            String                @unique // МО, МП, МЭО...
   name            String
-  campus          String           @default("Москва")
-  pairGrid        String           @default("A") // A: МО, ФУП, МЖ; B: МЭО, МП, МБ, ИМТУР (см. research §3)
+  campus          String                @default("Москва")
+  pairGrid        String                @default("A") // A: МО, ФУП, МЖ; B: МЭО, МП, МБ, ИМТУР (см. research §3)
   departments     Department[]
   groups          Group[]
   enrollments     Enrollment[]
   programs        Program[]
-  staff           Person[]         @relation("StaffFaculty")
+  staff           Person[]              @relation("StaffFaculty")
   announcements   Announcement[]
   practicePeriods PracticePeriod[]
+  campaigns       SupervisionCampaign[]
 }
 
 model Department {
@@ -105,12 +106,12 @@ model Department {
 }
 
 model Program {
-  id            Int               @id @default(autoincrement())
+  id            Int                   @id @default(autoincrement())
   level         Level
   campus        String
   facultyLabel  String // как в источнике: «МО», «ДА», «не указан в источнике»
   facultyId     Int?
-  faculty       Faculty?          @relation(fields: [facultyId], references: [id])
+  faculty       Faculty?              @relation(fields: [facultyId], references: [id])
   specialtyCode String? // шифр научной специальности (аспирантура)
   direction     String
   name          String
@@ -121,6 +122,7 @@ model Program {
   enrollments   Enrollment[]
   favorites     ProgramFavorite[]
   practices     PracticePeriod[]
+  campaigns     SupervisionCampaign[]
 }
 
 model Group {
@@ -180,6 +182,7 @@ model Person {
   offeredTopics       ThesisTopic[]
   supervisorProfile   SupervisorProfile?
   incomingSupervision SupervisorRequest[] @relation("SupervisorInbox")
+  intakes             SupervisorIntake[]
 }
 
 model Session {
@@ -430,6 +433,7 @@ model Notification {
   link      String?
   readAt    DateTime?
   createdAt DateTime  @default(now())
+  dedupeKey String?   @unique // ключ напоминания — чтобы не присылать одно и то же дважды
 
   @@index([personId, readAt])
 }
@@ -559,18 +563,58 @@ enum SupervisionStatus {
 }
 
 model SupervisorRequest {
-  id           String            @id @default(cuid())
+  id           String               @id @default(cuid())
   enrollmentId String
-  enrollment   Enrollment        @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  enrollment   Enrollment           @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
   supervisorId String
-  supervisor   Person            @relation("SupervisorInbox", fields: [supervisorId], references: [id])
+  supervisor   Person               @relation("SupervisorInbox", fields: [supervisorId], references: [id])
   topic        String
   message      String
-  status       SupervisionStatus @default(PENDING)
+  status       SupervisionStatus    @default(PENDING)
   reply        String?
-  createdAt    DateTime          @default(now())
+  createdAt    DateTime             @default(now())
   decidedAt    DateTime?
+  campaignId   Int?
+  campaign     SupervisionCampaign? @relation(fields: [campaignId], references: [id])
 
   @@index([supervisorId, status])
   @@index([enrollmentId, status])
+}
+
+// ---------- Учебный план года: кампании выбора руководителя (SPEC §13) ----------
+
+enum WorkType {
+  COURSEWORK
+  THESIS
+  NIR
+}
+
+model SupervisionCampaign {
+  id           Int                 @id @default(autoincrement())
+  facultyId    Int
+  faculty      Faculty             @relation(fields: [facultyId], references: [id])
+  programId    Int?
+  program      Program?            @relation(fields: [programId], references: [id])
+  level        Level
+  course       Int
+  workType     WorkType
+  academicYear String // "2026/27"
+  openBy       DateTime            @db.Date // руководителям открыть приём до
+  chooseBy     DateTime            @db.Date // студентам выбрать руководителя до
+  createdAt    DateTime            @default(now())
+  intakes      SupervisorIntake[]
+  requests     SupervisorRequest[]
+
+  @@unique([facultyId, programId, level, course, workType, academicYear])
+}
+
+model SupervisorIntake {
+  supervisorId String
+  supervisor   Person              @relation(fields: [supervisorId], references: [id], onDelete: Cascade)
+  campaignId   Int
+  campaign     SupervisionCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  slots        Int
+  openedAt     DateTime            @default(now())
+
+  @@id([supervisorId, campaignId])
 }

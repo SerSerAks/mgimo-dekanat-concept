@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { hashPassword } from "../src/lib/password";
 import { toMark } from "../src/config/grading";
+import { ACADEMIC_YEAR, loadYearPlan } from "../src/lib/campaigns";
 
 type Cred = [login: string, password: string, who: string];
 
@@ -91,6 +92,45 @@ export async function seedSupervision(db: PrismaClient): Promise<Cred[]> {
   if (!takenStudent.supervisorId) {
     await db.enrollment.update({ where: { id: takenStudent.id }, data: { supervisorId: sup3.id } });
     await db.supervisorRequest.create({ data: { enrollmentId: takenStudent.id, supervisorId: sup3.id, topic: "Концепция суверенитета у Ж. Бодена", message: "Интересуюсь историей политических идей.", status: "ACCEPTED", decidedAt: new Date(), reply: "Берусь, тема хорошая." } });
+  }
+  // факультет МО: руководители и студенты 2 курса — чтобы dean_mo мог загрузить план и увидеть, как расходятся уведомления
+  const mo = await db.faculty.findUniqueOrThrow({ where: { code: "МО" } });
+  const dipDep = await db.department.findFirstOrThrow({ where: { name: "Кафедра дипломатии" } });
+  const moSups = [
+    await person("sup_mo_dip", "SUPERVISOR", "", { lastName: "Воронцова", firstName: "Вероника", middleName: "Андреевна", staffDepartmentId: dipDep.id }, false),
+    await person("sup_mo_reg", "SUPERVISOR", "", { lastName: "Громов", firstName: "Никита", middleName: "Олегович", staffDepartmentId: dipDep.id }, false),
+  ];
+  const moInterests = ["дипломатический протокол, многосторонняя дипломатия, ООН", "регионоведение, страны Азиатско-Тихоокеанского региона, Япония"];
+  for (const [i, sp] of moSups.entries()) await db.supervisorProfile.upsert({ where: { personId: sp.id }, create: { personId: sp.id, position: "доцент", degree: "канд. ист. наук", interests: moInterests[i], maxStudents: 6, levels: ["BACHELOR", "MASTER"] }, update: {} });
+  const moProg = await db.program.findFirst({ where: { level: "BACHELOR", direction: "Зарубежное регионоведение" } });
+  for (let i = 1; i <= 3; i++) {
+    const p2 = await person(`demo_mo2_${i}`, "STUDENT", "", { lastName: ["Орлова", "Беляев", "Соколова"][i - 1], firstName: ["Ева", "Матвей", "Анна"][i - 1], middleName: ["Павловна", "Игоревич", "Сергеевна"][i - 1] }, false);
+    if (!(await db.enrollment.findFirst({ where: { personId: p2.id } }))) {
+      await db.enrollment.create({ data: { personId: p2.id, level: "BACHELOR", facultyId: mo.id, course: 2, programId: moProg?.id, studentCardNo: `25-МО-020${i}`, startDate: new Date("2025-09-01") } });
+    }
+  }
+
+  // учебный план ФУП загружен: кампании + первые уведомления (SPEC §13). План МО НЕ загружаем — это демо-действие для dean_mo
+
+  await loadYearPlan(db, fup.id);
+  const camp = (course: number, workType: "COURSEWORK" | "THESIS") => db.supervisionCampaign.findFirstOrThrow({ where: { facultyId: fup.id, programId: null, level: "BACHELOR", course, workType, academicYear: ACADEMIC_YEAR } });
+  const cw3 = await camp(3, "COURSEWORK"), th4 = await camp(4, "THESIS");
+  // приём открыли двое; sup_fup_theory — нет (ему придёт напоминание)
+  for (const [sid, cid, slots] of [[sup1.id, cw3.id, 4], [sup2.id, cw3.id, 2], [sup1.id, th4.id, 2], [sup3.id, th4.id, 1]] as const) {
+    await db.supervisorIntake.upsert({ where: { supervisorId_campaignId: { supervisorId: sid, campaignId: cid } }, create: { supervisorId: sid, campaignId: cid, slots }, update: {} });
+  }
+  // заявки без кампании (созданные до §13) — привязываем к кампании по курсу и виду работы
+  const legacy = await db.supervisorRequest.findMany({ where: { campaignId: null }, include: { enrollment: true } });
+  for (const r of legacy) {
+    const e = r.enrollment;
+    const c = await db.supervisionCampaign.findFirst({ where: { facultyId: e.facultyId, level: e.level, course: e.course, academicYear: ACADEMIC_YEAR, workType: e.level === "BACHELOR" && e.course < 4 ? "COURSEWORK" : "THESIS" } });
+    if (!c) continue;
+    await db.supervisorRequest.update({ where: { id: r.id }, data: { campaignId: c.id } });
+    // курсовая не закрепляет руководителя ВКР: откатываем закрепление, сделанное по старой логике
+    if (c.workType === "COURSEWORK" && r.status === "ACCEPTED" && e.supervisorId === r.supervisorId) {
+      await db.enrollment.update({ where: { id: e.id }, data: { supervisorId: null } });
+      await db.thesis.deleteMany({ where: { enrollmentId: e.id, stage: { lte: 2 } } });
+    }
   }
   return creds;
 }

@@ -6,7 +6,7 @@ import { addDays, fmtDay, fmtShort, nowHHMM, todayMsk, weekParity } from "@/lib/
 import { DaySchedule } from "@/components/day-schedule";
 import { EventsList } from "@/components/events-list";
 import { requestTypeLabel } from "@/lib/requests";
-import { canChooseSupervisor } from "@/lib/access";
+import { campaignsFor, workLabel } from "@/lib/campaigns";
 
 export default async function TodayPage() {
   const user = await requireStudent();
@@ -19,6 +19,10 @@ export default async function TodayPage() {
     db.request.findMany({ where: { enrollmentId: user.enrollment.id, status: "READY" }, orderBy: { updatedAt: "desc" } }),
     db.notification.findMany({ where: { personId: user.id, readAt: null }, orderBy: { createdAt: "desc" }, take: 3 }),
   ]);
+  // кампании, где руководитель ещё не выбран (нет принятой заявки; для ВКР — нет закреплённого руководителя)
+  const camps = await campaignsFor(db, user.enrollment);
+  const accepted = new Set((await db.supervisorRequest.findMany({ where: { enrollmentId: user.enrollment.id, status: "ACCEPTED" }, select: { campaignId: true } })).map((r) => r.campaignId));
+  const toChoose = camps.filter((c) => !accepted.has(c.id) && !(c.workType === "THESIS" && user.enrollment.supervisorId) && c.chooseBy >= today);
   const todayItems = dayItems(lessons, today);
   const tomorrowItems = dayItems(lessons, tomorrow);
   const nextDay = todayItems.length === 0 ? ahead.find((l) => l.change !== "CANCELLED") : undefined;
@@ -30,12 +34,12 @@ export default async function TodayPage() {
         <h1 className="text-2xl font-bold text-navy">Привет, {user.firstName}!</h1>
       </section>
 
-      {canChooseSupervisor(user.enrollment) && (
-        <Link href="/supervisor" className="block rounded-lg border border-navy/30 bg-secondary p-4 hover:bg-muted">
-          <b className="text-navy">Выберите научного руководителя</b>
-          <p className="text-sm">Для курсовой и выпускной работы. Договоритесь с преподавателем и отправьте заявку в кабинете →</p>
+      {toChoose.map((c) => (
+        <Link key={c.id} href={`/supervisor?c=${c.id}`} className="block rounded-lg border border-navy/30 bg-secondary p-4 hover:bg-muted">
+          <b className="text-navy">Выберите научного руководителя: {workLabel(c.workType, c.level).toLowerCase()}</b>
+          <p className="text-sm">Срок — до {new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", day: "numeric", month: "long" }).format(c.chooseBy)}. Договоритесь с преподавателем и отправьте заявку →</p>
         </Link>
-      )}
+      ))}
 
       {ready.length > 0 && (
         <section aria-labelledby="ready">

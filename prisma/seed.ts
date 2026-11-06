@@ -59,7 +59,7 @@ async function account(login: string, role: "STUDENT" | "DEAN_OFFICE" | "SUPERVI
 async function wipe() {
   // порядок важен из-за внешних ключей
   await db.$transaction([
-    db.supervisorRequest.deleteMany(), db.supervisorProfile.deleteMany(), db.event.deleteMany(), db.practicePeriod.deleteMany(), db.antiplagiatCheck.deleteMany(), db.announcementRead.deleteMany(), db.announcement.deleteMany(), db.notification.deleteMany(),
+    db.supervisorRequest.deleteMany(), db.supervisorIntake.deleteMany(), db.supervisionCampaign.deleteMany(), db.supervisorProfile.deleteMany(), db.event.deleteMany(), db.practicePeriod.deleteMany(), db.antiplagiatCheck.deleteMany(), db.announcementRead.deleteMany(), db.announcement.deleteMany(), db.notification.deleteMany(),
     db.thesisComment.deleteMany(), db.chapterVersion.deleteMany(), db.chapter.deleteMany(), db.thesisEvent.deleteMany(),
     db.thesis.deleteMany(), db.thesisTopic.deleteMany(), db.planItem.deleteMany(), db.requestEvent.deleteMany(), db.request.deleteMany(),
     db.grade.deleteMany(), db.programFavorite.deleteMany(), db.portfolioItem.deleteMany(), db.enrollment.deleteMany(),

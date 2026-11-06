@@ -7,6 +7,7 @@ const NAV: Record<string, NavItem[]> = {
   DEAN_OFFICE: [
     { href: "/staff/requests", label: "Заявки", icon: "inbox" },
     { href: "/staff/announcements", label: "Объявления", icon: "megaphone" },
+    { href: "/staff/plan", label: "План и НИР", icon: "book" },
     { href: "/staff/practice", label: "Практика", icon: "calendar" },
     { href: "/staff/people", label: "Студенты", icon: "users" },
   ],
