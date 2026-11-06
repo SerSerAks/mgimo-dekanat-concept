@@ -7,6 +7,7 @@ const LINKS = [
   ["/profile", "Профиль"],
   ["/notifications", "Уведомления"],
   ["/antiplagiat", "Антиплагиат"],
+  ["/supervisor", "Научный руководитель"],
 ];
 
 export default async function MorePage() {

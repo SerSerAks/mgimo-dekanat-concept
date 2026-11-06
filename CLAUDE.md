@@ -84,7 +84,8 @@ npx tsc --noEmit && npm run lint && npm run build   # перед коммито�
 
 ## Известные ловушки
 
-- Кнопки shadcn (`base-nova`) по умолчанию `type="button"` — в формах всегда пиши `type="submit"`.
+- Кнопки shadcn (`base-nova`) по умолчанию `type="button"` — в формах всегда пиши `type="submit"`. Они же не передают `name`/`value` в FormData: несколько действий в одной форме — через скрытое поле, заполняемое по onClick.
+- После `prisma migrate dev` перезапусти `npm run dev`: dev-сервер держит в памяти старый Prisma Client (ошибка PrismaClientValidationError).
 - Иконки в навигацию передаются строкой (`icon: "home"`), не компонентом: серверный компонент не может передать функцию клиентскому.
 - Не запускай `npm run build` при работающем `npm run dev`: сборка перезаписывает `.next`, dev-сервер падает с `Cannot find module './NNN.js'`. Лечится остановкой dev и удалением `.next`.
 - Имя папки проекта кириллическое — в docker-compose задано `name: dekanat`.

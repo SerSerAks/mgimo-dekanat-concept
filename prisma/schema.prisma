@@ -167,17 +167,19 @@ model Person {
   showPastToStaff   Boolean     @default(false) // разрешить сотрудникам видеть итог прошлых ступеней
   createdAt         DateTime    @default(now())
 
-  sessions          Session[]
-  enrollments       Enrollment[]       @relation("StudentEnrollments")
-  supervised        Enrollment[]       @relation("Supervisor")
-  notifications     Notification[]
-  portfolio         PortfolioItem[]
-  favorites         ProgramFavorite[]
-  comments          ThesisComment[]
-  requestEvents     RequestEvent[]
-  announcements     Announcement[]
-  announcementReads AnnouncementRead[]
-  offeredTopics     ThesisTopic[]
+  sessions            Session[]
+  enrollments         Enrollment[]        @relation("StudentEnrollments")
+  supervised          Enrollment[]        @relation("Supervisor")
+  notifications       Notification[]
+  portfolio           PortfolioItem[]
+  favorites           ProgramFavorite[]
+  comments            ThesisComment[]
+  requestEvents       RequestEvent[]
+  announcements       Announcement[]
+  announcementReads   AnnouncementRead[]
+  offeredTopics       ThesisTopic[]
+  supervisorProfile   SupervisorProfile?
+  incomingSupervision SupervisorRequest[] @relation("SupervisorInbox")
 }
 
 model Session {
@@ -226,11 +228,12 @@ model Enrollment {
   supervisorId     String?
   supervisor       Person?          @relation("Supervisor", fields: [supervisorId], references: [id])
 
-  grades            Grade[]
-  requests          Request[]
-  thesis            Thesis?
-  planItems         PlanItem[]
-  antiplagiatChecks AntiplagiatCheck[]
+  grades             Grade[]
+  requests           Request[]
+  thesis             Thesis?
+  planItems          PlanItem[]
+  antiplagiatChecks  AntiplagiatCheck[]
+  supervisorRequests SupervisorRequest[]
 
   @@index([personId, status])
   @@index([facultyId])
@@ -534,4 +537,40 @@ model AntiplagiatCheck {
   originality  Int?
   createdAt    DateTime    @default(now())
   checkedAt    DateTime?
+}
+
+// ---------- Выбор научного руководителя (SPEC §12) ----------
+
+model SupervisorProfile {
+  personId    String  @id
+  person      Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  position    String // доцент, профессор
+  degree      String? // канд. полит. наук
+  interests   String // научные интересы, через запятую
+  maxStudents Int     @default(5)
+  levels      Level[] // кого берёт: бакалавров, магистрантов, аспирантов
+}
+
+enum SupervisionStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+}
+
+model SupervisorRequest {
+  id           String            @id @default(cuid())
+  enrollmentId String
+  enrollment   Enrollment        @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  supervisorId String
+  supervisor   Person            @relation("SupervisorInbox", fields: [supervisorId], references: [id])
+  topic        String
+  message      String
+  status       SupervisionStatus @default(PENDING)
+  reply        String?
+  createdAt    DateTime          @default(now())
+  decidedAt    DateTime?
+
+  @@index([supervisorId, status])
+  @@index([enrollmentId, status])
 }

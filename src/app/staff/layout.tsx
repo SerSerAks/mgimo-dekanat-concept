@@ -11,6 +11,7 @@ const NAV: Record<string, NavItem[]> = {
     { href: "/staff/people", label: "Студенты", icon: "users" },
   ],
   SUPERVISOR: [
+    { href: "/staff/supervision", label: "Заявки студентов", icon: "inbox" },
     { href: "/staff/students", label: "Мои студенты", icon: "users" },
     { href: "/staff/announcements", label: "Объявления", icon: "megaphone" },
   ],
@@ -25,7 +26,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
   const unread = await unreadCount(user.id);
   const role = user.role as keyof typeof ROLE;
   return (
-    <AppShell items={NAV[role]} unread={unread} userLabel={`${ROLE[role]} · ${user.firstName} ${user.lastName}`}>
+    <AppShell notificationsHref="/staff/notifications" items={NAV[role]} unread={unread} userLabel={`${ROLE[role]} · ${user.firstName} ${user.lastName}`}>
       {children}
     </AppShell>
   );

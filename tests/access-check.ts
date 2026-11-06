@@ -21,7 +21,7 @@ async function userOf(login: string) {
 }
 
 (async () => {
-  const { enrollmentScope, requestScope, thesisScope, gradeScope } = await import("../src/lib/access");
+  const { enrollmentScope, requestScope, thesisScope, gradeScope, supervisorRequestScope, canChooseSupervisor } = await import("../src/lib/access");
   const names = async (where: object) => (await db.enrollment.findMany({ where, include: { person: true } })).map((e) => e.person.login).sort();
 
   const s1 = await userOf("student1");
@@ -45,14 +45,31 @@ async function userOf(login: string) {
 
   const sup = await userOf("supervisor1");
   const supList = await names(enrollmentScope(sup));
-  check("руководитель видит только закреплённых (master1, postgrad1)", JSON.stringify(supList) === JSON.stringify(["master1", "postgrad1"]), supList.join(","));
-  check("руководитель не видит архивную магистратуру postgrad1", (await db.enrollment.count({ where: enrollmentScope(sup) })) === 2);
+  // правило, а не фиксированный список: студенты могут прикрепляться к руководителю в ходе демо
+  const supPerson = await db.person.findUniqueOrThrow({ where: { login: "supervisor1" } });
+  const expected = (await db.enrollment.findMany({ where: { supervisorId: supPerson.id, status: "ACTIVE" }, include: { person: true } })).map((e) => e.person.login).sort();
+  check("руководитель видит ровно закреплённых за ним студентов", JSON.stringify(supList) === JSON.stringify(expected) && supList.includes("master1") && !supList.includes("student1") && !supList.includes("student2"), supList.join(","));
+  const archived = await db.enrollment.count({ where: { supervisorId: supPerson.id, status: { not: "ACTIVE" } } });
+  check("руководитель не видит архивные ступени своих бывших студентов", archived > 0 && (await db.enrollment.count({ where: { AND: [enrollmentScope(sup), { status: { not: "ACTIVE" } }] } })) === 0, `архивных закреплений: ${archived}`);
   check("руководитель не видит заявки", (await db.request.count({ where: requestScope(sup) })) === 0);
 
   const dept = await userOf("dept_mp");
   const theses = await db.thesis.findMany({ where: thesisScope(dept), include: { enrollment: { include: { person: true } } } });
   check("кафедра МП видит только ВКР своей кафедры (student2)", theses.length === 1 && theses[0].enrollment.person.login === "student2");
   check("кафедра не видит оценки", (await db.grade.count({ where: gradeScope(dept) })) === 0);
+
+  // выбор научного руководителя (SPEC §12)
+  const s3 = await userOf("student3");
+  const supReqs = await db.supervisorRequest.findMany({ where: supervisorRequestScope(sup), include: { enrollment: { include: { person: true } } } });
+  const supId = (await db.person.findUniqueOrThrow({ where: { login: "supervisor1" } })).id;
+  check("руководитель видит только адресованные ему заявки", supReqs.length > 0 && supReqs.every((r) => r.supervisorId === supId), `${supReqs.length} шт.`);
+  const foreignReq = await db.supervisorRequest.findFirst({ where: { supervisor: { login: "sup_fup_theory" } } });
+  check("руководитель не получает чужую заявку по id", !foreignReq || !(await db.supervisorRequest.findFirst({ where: { id: foreignReq.id, ...supervisorRequestScope(sup) } })));
+  check("student3 не видит заявки других студентов", (await db.supervisorRequest.findMany({ where: supervisorRequestScope(s3), include: { enrollment: { include: { person: true } } } })).every((r) => r.enrollment.person.login === "student3"));
+  check("деканат не видит заявки на руководство", (await db.supervisorRequest.count({ where: supervisorRequestScope(deanMo) })) === 0);
+  const s3e = await db.enrollment.findFirstOrThrow({ where: { person: { login: "student3" }, status: "ACTIVE" } });
+  const s1e = await db.enrollment.findFirstOrThrow({ where: { person: { login: "student1" }, status: "ACTIVE" } });
+  check("выбирать руководителя может 3 курс без руководителя, но не 1 курс", canChooseSupervisor(s3e) === !s3e.supervisorId && !canChooseSupervisor(s1e));
 
   console.log(failed ? `\nПровалено проверок: ${failed}` : "\nВсе проверки доступа пройдены");
   await db.$disconnect();

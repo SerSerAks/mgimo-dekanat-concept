@@ -5,8 +5,8 @@ import { Logo } from "./logo";
 import { Disclaimer } from "./disclaimer";
 import { BottomNav, SideNav, type NavItem } from "./nav";
 
-export function AppShell({ items, mobileItems, unread, userLabel, aside, children }: {
-  items: NavItem[]; mobileItems?: NavItem[]; unread: number; userLabel: string; aside?: React.ReactNode; children: React.ReactNode;
+export function AppShell({ items, mobileItems, unread, userLabel, aside, notificationsHref = "/notifications", children }: {
+  items: NavItem[]; mobileItems?: NavItem[]; unread: number; userLabel: string; aside?: React.ReactNode; notificationsHref?: string; children: React.ReactNode;
 }) {
   return (
     <div className="min-h-dvh">
@@ -15,7 +15,7 @@ export function AppShell({ items, mobileItems, unread, userLabel, aside, childre
           <Link href="/" aria-label="На главную"><Logo compact /></Link>
           <div className="flex items-center gap-3">
             <span className="hidden text-sm text-muted-foreground sm:inline">{userLabel}</span>
-            <Link href="/notifications" className="relative grid size-11 place-items-center rounded-sm hover:bg-muted" aria-label={`Уведомления: ${unread} непрочитанных`}>
+            <Link href={notificationsHref} className="relative grid size-11 place-items-center rounded-sm hover:bg-muted" aria-label={`Уведомления: ${unread} непрочитанных`}>
               <Bell className="size-5 text-navy" aria-hidden />
               {unread > 0 && (
                 <span className="absolute right-1.5 top-1.5 grid min-w-5 place-items-center rounded-full bg-brand-red px-1 text-[11px] font-bold text-white">

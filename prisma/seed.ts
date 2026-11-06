@@ -12,6 +12,7 @@ import { randomBytes } from "node:crypto";
 import { hashPassword } from "../src/lib/password";
 import { toMark } from "../src/config/grading";
 import { applyDemoChanges } from "./demo-changes";
+import { seedSupervision } from "./supervision-seed";
 
 const db = new PrismaClient();
 const DAY = 86400000;
@@ -58,7 +59,7 @@ async function account(login: string, role: "STUDENT" | "DEAN_OFFICE" | "SUPERVI
 async function wipe() {
   // порядок важен из-за внешних ключей
   await db.$transaction([
-    db.event.deleteMany(), db.practicePeriod.deleteMany(), db.antiplagiatCheck.deleteMany(), db.announcementRead.deleteMany(), db.announcement.deleteMany(), db.notification.deleteMany(),
+    db.supervisorRequest.deleteMany(), db.supervisorProfile.deleteMany(), db.event.deleteMany(), db.practicePeriod.deleteMany(), db.antiplagiatCheck.deleteMany(), db.announcementRead.deleteMany(), db.announcement.deleteMany(), db.notification.deleteMany(),
     db.thesisComment.deleteMany(), db.chapterVersion.deleteMany(), db.chapter.deleteMany(), db.thesisEvent.deleteMany(),
     db.thesis.deleteMany(), db.thesisTopic.deleteMany(), db.planItem.deleteMany(), db.requestEvent.deleteMany(), db.request.deleteMany(),
     db.grade.deleteMany(), db.programFavorite.deleteMany(), db.portfolioItem.deleteMany(), db.enrollment.deleteMany(),
@@ -113,6 +114,7 @@ async function main() {
   const grp: Record<string, number> = {};
   for (const [name, g] of Object.entries<{ ruzId: number; lessons: Record<string, string | null>[] }>(snap.groups)) {
     const m = GROUP_META[name];
+    if (!m) continue; // остальные группы создают тематические модули (например, 3УП-01 — supervision-seed)
     grp[name] = (await db.group.create({ data: { name, ruzId: g.ruzId, level: m.level, course: m.course, facultyId: fac[m.faculty] } })).id;
     const rows = [];
     for (const l of g.lessons) {
@@ -313,6 +315,9 @@ async function main() {
   await notify(s2.id, "thesis", "Замечания к главе 1", "Научный руководитель оставил замечания к главе «Доктрины иммунитета государства».", "/study", 20);
   await notify(m1.id, "thesis", "Глава 1 на проверке", "Руководитель получил главу 1.", "/study", 8);
   await notify(p1.id, "deadline", "Срок: статья ВАК 2 из 3", "До срока по индивидуальному плану осталось 60 дней.", "/study", 12);
+
+  // выбор научного руководителя: группа 3УП-01, профили руководителей, student3
+  credentials.push(...(await seedSupervision(db)));
 
   // демо-изменения расписания (после создания студентов — нужны их подгруппы)
   await applyDemoChanges(db, today);

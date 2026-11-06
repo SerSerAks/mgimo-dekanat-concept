@@ -32,7 +32,7 @@ export default async function StudyPage({ searchParams }: { searchParams: Promis
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-navy">Успеваемость</h1>
-        <Link href="/antiplagiat" className="text-sm font-semibold text-brand-blue">Антиплагиат →</Link>
+        <span className="flex gap-4 text-sm font-semibold text-brand-blue"><Link href="/supervisor">Научный руководитель</Link><Link href="/antiplagiat">Антиплагиат</Link></span>
       </div>
 
       {/* «Как у меня дела» — одной строкой */}

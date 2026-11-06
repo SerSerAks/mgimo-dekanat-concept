@@ -29,7 +29,7 @@ export async function applyDemoChanges(db: PrismaClient, today: Date) {
   const groups = await db.group.findMany();
   for (const g of groups) {
     // подгруппа демо-студента группы, чтобы изменения были видны в его расписании
-    const enr = await db.enrollment.findFirst({ where: { groupId: g.id, status: "ACTIVE", person: { login: { in: ["student1", "student2", "master1"] } } } });
+    const enr = await db.enrollment.findFirst({ where: { groupId: g.id, status: "ACTIVE", person: { login: { in: ["student1", "student2", "student3", "master1"] } } } });
     const sub = enr?.languageSubgroup ?? null;
     const near = await db.lesson.findMany({
       where: { groupId: g.id, date: { gte: today, lt: new Date(today.getTime() + 3 * DAY) }, OR: [{ subgroup: null }, ...(sub ? [{ subgroup: sub }] : [])] },

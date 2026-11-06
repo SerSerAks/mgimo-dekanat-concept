@@ -6,6 +6,7 @@ import { addDays, fmtDay, fmtShort, nowHHMM, todayMsk, weekParity } from "@/lib/
 import { DaySchedule } from "@/components/day-schedule";
 import { EventsList } from "@/components/events-list";
 import { requestTypeLabel } from "@/lib/requests";
+import { canChooseSupervisor } from "@/lib/access";
 
 export default async function TodayPage() {
   const user = await requireStudent();
@@ -28,6 +29,13 @@ export default async function TodayPage() {
         <p className="text-sm text-muted-foreground first-letter:uppercase">{fmtDay(today)} · {weekParity(today).label}</p>
         <h1 className="text-2xl font-bold text-navy">Привет, {user.firstName}!</h1>
       </section>
+
+      {canChooseSupervisor(user.enrollment) && (
+        <Link href="/supervisor" className="block rounded-lg border border-navy/30 bg-secondary p-4 hover:bg-muted">
+          <b className="text-navy">Выберите научного руководителя</b>
+          <p className="text-sm">Для курсовой и выпускной работы. Договоритесь с преподавателем и отправьте заявку в кабинете →</p>
+        </Link>
+      )}
 
       {ready.length > 0 && (
         <section aria-labelledby="ready">

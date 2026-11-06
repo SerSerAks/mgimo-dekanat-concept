@@ -12,6 +12,7 @@ const GROUPS = [
   { name: "1МО-01", ruzId: 7814 },
   { name: "4МП-02", ruzId: 7592 },
   { name: "2МагГУ-01", ruzId: 8226 },
+  { name: "3УП-01", ruzId: 8203 },
 ];
 const FROM = new Date("2026-09-01");
 const TO = new Date("2026-12-31");

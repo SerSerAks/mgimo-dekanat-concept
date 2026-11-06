@@ -69,3 +69,17 @@ export const can = {
   moveLesson: (user: CurrentUser) => user.role === "DEAN_OFFICE",
   publishAnnouncement: (user: CurrentUser) => user.role !== "STUDENT",
 };
+
+/** Заявки на научное руководство: студент — свои, руководитель — адресованные ему. */
+export function supervisorRequestScope(user: CurrentUser): Prisma.SupervisorRequestWhereInput {
+  if (user.role === "STUDENT") return { enrollment: { personId: user.id } };
+  if (user.role === "SUPERVISOR") return { supervisorId: user.id };
+  return { id: "__none__" };
+}
+
+/** Кто выбирает руководителя сам: бакалавр с 3 курса, магистрант, аспирант — без закреплённого руководителя. */
+export function canChooseSupervisor(e: { level: "BACHELOR" | "MASTER" | "POSTGRAD"; course: number; supervisorId: string | null; status?: string }) {
+  if (e.supervisorId) return false;
+  if (e.status && e.status !== "ACTIVE") return false;
+  return e.level !== "BACHELOR" || e.course >= 3;
+}
