@@ -79,7 +79,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
             programs={programs.map((p) => ({ id: p.id, label: `${p.specialtyCode ? p.specialtyCode + " " : ""}${p.direction}${p.name ? ` — ${p.name}` : ""}`, level: p.level }))}
             groups={groups.map((g) => ({ id: g.id, label: g.name, level: g.level, course: g.course }))}
             managers={managers} />
-          {(kind === "department" || kind === "supervisor" || kind === "staff") && (
+          {(kind === "department" || kind === "supervisor" || (kind === "staff" && user.isHead)) && (
             <div className="mt-4 border-t pt-4">
               <h3 className="mb-1 text-sm font-semibold text-navy">Человек уже работает в системе?</h3>
               <p className="mb-3 text-xs text-muted-foreground">Назначьте его по логину на вторую должность — без нового логина и пароля. Должность он переключает в шапке кабинета.</p>
