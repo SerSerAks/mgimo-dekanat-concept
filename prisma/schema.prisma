@@ -100,6 +100,7 @@ model Department {
   facultyId     Int
   faculty       Faculty               @relation(fields: [facultyId], references: [id])
   staff         Person[]              @relation("StaffDepartment")
+  appointments  Appointment[]
   campaigns     SupervisionCampaign[]
   teachers      Teacher[]
   theses        Thesis[]
@@ -200,16 +201,38 @@ model Person {
   staffRoom           String?
   staffHours          String?
   workPhone           String? // вымышленный
+  appointments        Appointment[]       @relation("Appointments")
+  lastAppointmentId   String? // с какой должностью работал в прошлый раз — с неё и откроется кабинет после входа
 }
 
 model Session {
-  id        String   @id // sha256 от токена; сам токен хранится только в cookie
-  personId  String
-  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id            String       @id // sha256 от токена; сам токен хранится только в cookie
+  personId      String
+  person        Person       @relation(fields: [personId], references: [id], onDelete: Cascade)
+  expiresAt     DateTime
+  createdAt     DateTime     @default(now())
+  // активная должность: null — основная (поля Person), иначе — дополнительная (SPEC §17)
+  appointmentId String?
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
 
   @@index([personId])
+}
+
+/// Дополнительная должность сотрудника (SPEC §17): замдекана — ещё и руководитель кафедры, кафедра — ещё и преподаватель.
+/// Основная должность — поля Person (role, staffFacultyId, staffDepartmentId); здесь только кафедра или преподаватель.
+model Appointment {
+  id                String     @id @default(cuid())
+  personId          String
+  person            Person     @relation("Appointments", fields: [personId], references: [id], onDelete: Cascade)
+  role              Role // DEPARTMENT или SUPERVISOR
+  staffDepartmentId Int
+  staffDepartment   Department @relation(fields: [staffDepartmentId], references: [id])
+  createdById       String?
+  createdAt         DateTime   @default(now())
+  sessions          Session[]
+
+  @@unique([personId, role, staffDepartmentId])
+  @@index([role, staffDepartmentId])
 }
 
 model LoginAttempt {

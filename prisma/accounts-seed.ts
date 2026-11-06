@@ -59,6 +59,14 @@ export async function seedAccounts(db: PrismaClient): Promise<[string, string, s
     }
   }
 
+  // совмещение (SPEC §17): замдекана МО Лебедева — ещё и руководитель кафедры дипломатии (одна учётка, переключатель в шапке)
+  const lebedeva = await db.person.findUnique({ where: { login: "mo_zam_study" } });
+  const dip = await db.department.findFirst({ where: { name: "Кафедра дипломатии", faculty: { code: "МО" } } });
+  if (lebedeva && dip) await db.appointment.upsert({
+    where: { personId_role_staffDepartmentId: { personId: lebedeva.id, role: "DEPARTMENT", staffDepartmentId: dip.id } },
+    update: {}, create: { personId: lebedeva.id, role: "DEPARTMENT", staffDepartmentId: dip.id, createdById: lebedeva.managerId },
+  });
+
   // аспирант postgrad1 — на кафедре государственного управления (кафедра его руководителя)
   const gov = await db.department.findFirst({ where: { name: "Кафедра государственного управления" } });
   if (gov) await db.enrollment.updateMany({ where: { level: "POSTGRAD", departmentId: null, person: { login: "postgrad1" } }, data: { departmentId: gov.id } });

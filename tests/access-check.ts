@@ -116,6 +116,27 @@ async function userOf(login: string) {
   check("специалист без подчинённых не управляет коллегами и начальником", (await db.person.count({ where: { AND: [accountScope(spec), { role: "DEAN_OFFICE" }] } })) === 0);
   check("студент не управляет аккаунтами", (await db.person.count({ where: accountScope(s1) })) === 0);
 
+  // совмещение должностей (SPEC §17): Лебедева — замдекана МО и руководитель кафедры дипломатии
+  const { appointmentScope, staffListScope } = await import("../src/lib/access");
+  const leb = await db.person.findUniqueOrThrow({ where: { login: "mo_zam_study" }, include: { appointments: true } });
+  const app = leb.appointments.find((a) => a.role === "DEPARTMENT");
+  check("у Лебедевой есть вторая должность — кафедра", !!app);
+  if (app) {
+    const asDean = await userOf("mo_zam_study");
+    // так getCurrentUser строит пользователя при активной дополнительной должности
+    const asDept = { ...(asDean as object), role: "DEPARTMENT", staffFacultyId: null, staffDepartmentId: app.staffDepartmentId, isHead: false } as never;
+    check("в роли кафедры совместитель не видит заявок деканата", (await db.request.count({ where: requestScope(asDept) })) === 0);
+    check("в роли деканата совместитель видит заявки факультета", (await db.request.count({ where: requestScope(asDean) })) > 0);
+    const deptAcc = await db.person.findMany({ where: accountScope(asDept), select: { role: true, staffDepartmentId: true } });
+    check("в роли кафедры управляет только своей кафедрой, не деканатом", deptAcc.every((p) => p.role !== "DEAN_OFFICE" && (p.role === "STUDENT" || p.staffDepartmentId === app.staffDepartmentId)));
+    check("декан МО сбрасывает пароль совместителю (основная должность — деканат)", !!(await db.person.findFirst({ where: { AND: [{ id: leb.id }, accountScope(deanMo)] } })));
+    const kafHead = { ...(asDean as object), id: "другой-руководитель-кафедры", role: "DEPARTMENT", staffFacultyId: null, staffDepartmentId: app.staffDepartmentId, isHead: false } as never;
+    check("коллега по кафедре не может сбросить пароль замдекану", !(await db.person.findFirst({ where: { AND: [{ id: leb.id }, accountScope(kafHead)] } })));
+    check("деканат МО видит совместителя в списке кафедр и может снять с должности", !!(await db.appointment.findFirst({ where: { AND: [{ id: app.id }, appointmentScope(deanMo)] } })));
+    const deanMp = await userOf("dean_mp");
+    check("деканат МП не видит и не снимает чужого совместителя", !(await db.person.findFirst({ where: { AND: [{ id: leb.id }, staffListScope(deanMp)] } })) && !(await db.appointment.findFirst({ where: { AND: [{ id: app.id }, appointmentScope(deanMp)] } })));
+  }
+
   console.log(failed ? `\nПровалено проверок: ${failed}` : "\nВсе проверки доступа пройдены");
   await db.$disconnect();
   process.exit(failed ? 1 : 0);

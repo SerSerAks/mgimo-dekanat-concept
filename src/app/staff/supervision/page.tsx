@@ -13,7 +13,9 @@ const fmt = (d: Date) => new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", day
 
 export default async function SupervisionInbox() {
   const user = await requireUser(["SUPERVISOR"]);
-  const me = await db.person.findUniqueOrThrow({ where: { id: user.id }, include: { staffDepartment: true, supervisorProfile: true } });
+  const me = await db.person.findUniqueOrThrow({ where: { id: user.id }, include: { supervisorProfile: true } });
+  // кафедра текущей должности (может быть дополнительной, SPEC §17)
+  const myDep = await db.department.findUnique({ where: { id: user.staffDepartmentId ?? -1 } });
   const levels = me.supervisorProfile?.levels ?? [];
   const [list, camps] = await Promise.all([
     db.supervisorRequest.findMany({
@@ -21,7 +23,7 @@ export default async function SupervisionInbox() {
       include: { campaign: true, enrollment: { include: { person: { select: { lastName: true, firstName: true, middleName: true } }, group: true, program: true, grades: { select: { mark: true, isDebt: true } } } } },
     }),
     db.supervisionCampaign.findMany({
-      where: { facultyId: me.staffDepartment?.facultyId ?? -1, OR: [{ departmentId: null }, { departmentId: me.staffDepartmentId ?? -1 }], academicYear: ACADEMIC_YEAR, level: { in: levels } },
+      where: { facultyId: myDep?.facultyId ?? -1, OR: [{ departmentId: null }, { departmentId: myDep?.id ?? -1 }], academicYear: ACADEMIC_YEAR, level: { in: levels } },
       orderBy: [{ openBy: "asc" }],
       include: { intakes: { where: { supervisorId: user.id } }, requests: { where: { supervisorId: user.id, status: "ACCEPTED" }, select: { id: true } } },
     }),

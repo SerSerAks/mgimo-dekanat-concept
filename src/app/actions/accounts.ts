@@ -6,13 +6,13 @@ import type { Level, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { homeFor, requireUser, type CurrentUser } from "@/lib/auth";
-import { accountScope } from "@/lib/access";
+import { accountScope, appointmentScope } from "@/lib/access";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { baseLogin, generatePassword, parseFio, studentCardNo, uniqueLogin, type Fio } from "@/lib/accounts";
 import { readPeopleFile, MAX_ROWS } from "@/lib/bulk-file";
 
 export type Cred = { fio: string; login: string; password: string; note: string };
-export type AccState = { error?: string; creds?: Cred[] } | undefined;
+export type AccState = { error?: string; creds?: Cred[]; info?: string } | undefined;
 export type PreviewRow = { line: number; fio: string; login: string; group: string | null; position: string | null; degree: string | null; error: string | null };
 export type PreviewState = { error?: string; rows?: PreviewRow[]; batch?: string } | undefined;
 
@@ -286,7 +286,16 @@ export async function updateAccount(_: EditState, form: FormData): Promise<EditS
   const id = String(form.get("id") ?? "");
   const self = id === user.id && user.role === "DEAN_OFFICE";
   const p = self ? await db.person.findUnique({ where: { id } }) : await db.person.findFirst({ where: { AND: [{ id }, accountScope(user)] } });
-  if (!p) return { error: "Аккаунт не найден" };
+  if (!p) {
+    // преподаватель-совместитель: кафедра правит только профиль руководителя, ФИО и пароль — у основного руководителя (SPEC §17)
+    const extra = await db.person.findFirst({ where: { id, appointments: { some: { AND: [appointmentScope(user), { role: "SUPERVISOR" }] } } } });
+    if (!extra) return { error: "Аккаунт не найден" };
+    const c = z.object({ position: z.string().trim().min(3).max(60), degree: t(60), interests: z.string().trim().max(300).default(""), maxStudents: z.coerce.number().int().min(0).max(15) }).safeParse(Object.fromEntries(form));
+    if (!c.success) return { error: "Проверьте должность и число студентов (0–15)" };
+    await db.supervisorProfile.upsert({ where: { personId: id }, update: c.data, create: { personId: id, ...c.data, levels: ["BACHELOR", "MASTER", "POSTGRAD"] } });
+    revalidatePath("/staff/accounts");
+    return { ok: "Анкета преподавателя сохранена" };
+  }
 
   let fio: Fio | null = null;
   if (!self) {
@@ -366,6 +375,18 @@ export async function deleteAccount(_: EditState, form: FormData): Promise<EditS
   const target: Prisma.PersonWhereInput = user.role === "RECTOR" ? { role: "DEAN_OFFICE", isHead: true } : { role: "DEPARTMENT" };
   const p = await db.person.findFirst({ where: { AND: [{ id }, target, accountScope(user)] } });
   if (!p) return { error: "Аккаунт не найден" };
+  // совместитель: снимаем только эту должность, следующая становится основной (SPEC §17)
+  const next = await db.appointment.findFirst({ where: { personId: id }, orderBy: { createdAt: "asc" } });
+  if (next) {
+    await db.$transaction([
+      db.person.updateMany({ where: { managerId: id }, data: { managerId: null } }),
+      db.person.update({ where: { id }, data: { role: next.role, staffDepartmentId: next.staffDepartmentId, staffFacultyId: null, isHead: false, managerId: null, position: null } }),
+      db.appointment.delete({ where: { id: next.id } }),
+      db.session.deleteMany({ where: { personId: id } }),
+    ]);
+    revalidatePath("/staff/accounts");
+    return { ok: "Снят(а) с этой должности. Учётка осталась — у человека есть другая должность." };
+  }
   // подчинённые и созданные аккаунты не удаляются: подчинённые декана переходят к следующему декану,
   // преподаватели и аспиранты кафедры остаются за кафедрой — их увидит новый руководитель
   const unlink = [
@@ -386,6 +407,86 @@ export async function deleteAccount(_: EditState, form: FormData): Promise<EditS
   }
   revalidatePath("/staff/accounts");
   return { ok: p.role === "DEPARTMENT" ? "Аккаунт удалён — можно создать нового руководителя кафедры" : "Анкета удалена — можно назначить нового декана" };
+}
+
+// ---------- совмещение должностей (SPEC §17) ----------
+
+/** Сотрудник факультета по основной должности: деканат факультета, кафедра или преподаватель кафедры факультета. */
+const facultyStaff = (facultyId: number): Prisma.PersonWhereInput => ({ OR: [
+  { role: "DEAN_OFFICE", staffFacultyId: facultyId },
+  { role: { in: ["DEPARTMENT", "SUPERVISOR"] }, staffDepartment: { facultyId } },
+] });
+
+/**
+ * Назначить УЖЕ существующего сотрудника на вторую должность — без нового логина и пароля:
+ * деканат → руководитель кафедры или сотрудник деканата; кафедра → преподаватель кафедры.
+ * Искать можно только сотрудников своего факультета; чужой логин неотличим от несуществующего.
+ */
+export async function appointExisting(_: AccState, form: FormData): Promise<AccState> {
+  const user = await requireUser(["DEAN_OFFICE", "DEPARTMENT"]);
+  const kind = String(form.get("kind") ?? "");
+  const login = z.string().trim().min(2).max(64).safeParse(form.get("login"));
+  if (!login.success) return { error: "Впишите логин сотрудника, например Ivanov_P_V" };
+
+  const facultyId = user.role === "DEAN_OFFICE" ? user.staffFacultyId : (await db.department.findUnique({ where: { id: user.staffDepartmentId ?? -1 } }))?.facultyId;
+  if (facultyId == null) return { error: "Нет привязки к подразделению" };
+  const p = await db.person.findFirst({ where: { AND: [{ login: { equals: login.data, mode: "insensitive" } }, facultyStaff(facultyId)] }, include: { appointments: true } });
+  if (!p) return { error: "Сотрудник с таким логином на вашем факультете не найден" };
+  const name = `${p.lastName} ${p.firstName}${p.middleName ? " " + p.middleName : ""}`;
+
+  if (kind === "department" && user.role === "DEAN_OFFICE") {
+    const dep = await db.department.findFirst({ where: { id: Number(form.get("departmentId")) || -1, facultyId } });
+    if (!dep) return { error: "Выберите кафедру из списка" };
+    if ((p.role === "DEPARTMENT" && p.staffDepartmentId === dep.id) || p.appointments.some((a) => a.role === "DEPARTMENT" && a.staffDepartmentId === dep.id))
+      return { error: `${name} уже руководит этой кафедрой` };
+    await db.appointment.create({ data: { personId: p.id, role: "DEPARTMENT", staffDepartmentId: dep.id, createdById: user.id } });
+    revalidatePath("/staff/accounts");
+    return { creds: [], info: `${name} теперь ещё и руководитель: ${dep.name}. Вход — по прежнему логину ${p.login}, должность переключается в шапке.` };
+  }
+
+  if (kind === "supervisor" && user.role === "DEPARTMENT" && user.staffDepartmentId != null) {
+    if ((p.role === "SUPERVISOR" && p.staffDepartmentId === user.staffDepartmentId) || p.appointments.some((a) => a.role === "SUPERVISOR" && a.staffDepartmentId === user.staffDepartmentId))
+      return { error: `${name} уже преподаёт на вашей кафедре` };
+    await db.$transaction([
+      db.appointment.create({ data: { personId: p.id, role: "SUPERVISOR", staffDepartmentId: user.staffDepartmentId, createdById: user.id } }),
+      db.supervisorProfile.upsert({ where: { personId: p.id }, update: {}, create: { personId: p.id, position: "преподаватель", interests: "", maxStudents: 5, levels: ["BACHELOR", "MASTER", "POSTGRAD"] } }),
+    ]);
+    revalidatePath("/staff/accounts");
+    return { creds: [], info: `${name} добавлен(а) в преподаватели кафедры. Вход — по прежнему логину ${p.login}.` };
+  }
+
+  if (kind === "staff" && user.role === "DEAN_OFFICE" && user.staffFacultyId != null) {
+    // руководитель кафедры / преподаватель становится сотрудником деканата: деканат — основная должность,
+    // прежняя переезжает в дополнительные. Пароль теперь сбрасывает деканат (старший руководитель).
+    if (p.role === "DEAN_OFFICE") return { error: `${name} уже работает в деканате` };
+    if (p.staffDepartmentId == null || (p.role !== "DEPARTMENT" && p.role !== "SUPERVISOR")) return { error: "Этого сотрудника назначить нельзя" };
+    const position = z.string().trim().min(3).max(80).safeParse(form.get("position"));
+    if (!position.success) return { error: "Укажите должность в деканате" };
+    const managerId = String(form.get("managerId") || user.id);
+    if (managerId !== user.id && !(await db.person.findFirst({ where: { AND: [{ id: managerId, role: "DEAN_OFFICE" }, accountScope(user)] } }))) return { error: "Такого руководителя выбрать нельзя" };
+    await db.$transaction([
+      db.appointment.upsert({
+        where: { personId_role_staffDepartmentId: { personId: p.id, role: p.role, staffDepartmentId: p.staffDepartmentId } },
+        update: {}, create: { personId: p.id, role: p.role, staffDepartmentId: p.staffDepartmentId, createdById: p.createdById },
+      }),
+      db.person.update({ where: { id: p.id }, data: { role: "DEAN_OFFICE", staffFacultyId: user.staffFacultyId, staffDepartmentId: null, position: position.data, managerId, createdById: user.id } }),
+      db.session.deleteMany({ where: { personId: p.id } }), // права меняются — пусть войдёт заново
+    ]);
+    revalidatePath("/staff/accounts");
+    return { creds: [], info: `${name} назначен(а): ${position.data}. Прежняя должность сохранилась — переключается в шапке. Вход — по прежнему логину ${p.login}.` };
+  }
+  return { error: "Такое назначение вам недоступно" };
+}
+
+/** Снять с дополнительной должности: учётка и основная должность остаются. */
+export async function removeAppointment(_: EditState, form: FormData): Promise<EditState> {
+  const user = await requireUser(["DEAN_OFFICE", "DEPARTMENT"]);
+  const id = String(form.get("appointmentId") ?? "");
+  const a = await db.appointment.findFirst({ where: { AND: [{ id }, appointmentScope(user)] }, include: { staffDepartment: true } });
+  if (!a) return { error: "Должность не найдена" };
+  await db.appointment.delete({ where: { id: a.id } }); // активные сессии с этой должностью вернутся к основной
+  revalidatePath("/staff/accounts");
+  return { ok: `Снят(а) с должности: ${a.role === "DEPARTMENT" ? "руководитель" : "преподаватель"} · ${a.staffDepartment.name}` };
 }
 
 // ---------- смена своего пароля ----------

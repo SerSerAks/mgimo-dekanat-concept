@@ -11,6 +11,7 @@ export function DeanTreeView({ nodes, depth = 0, action }: { nodes: TreeNode[]; 
             {n.position && <p className="text-xs font-semibold uppercase tracking-wide text-brand-blue">{n.position}</p>}
             <b className="text-navy">{n.fio}</b>
             {n.duties && <p className="text-sm">{n.duties}</p>}
+            {n.also.length > 0 && <p className="text-xs text-brand-blue">Также {n.also.join("; ")}</p>}
             <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
               {n.room && <span className="inline-flex items-center gap-1"><DoorOpen className="size-3.5" aria-hidden />{n.room}</span>}
               {n.hours && <span className="inline-flex items-center gap-1"><Clock className="size-3.5" aria-hidden />{n.hours}</span>}

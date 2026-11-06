@@ -4,7 +4,7 @@ import { fmtDateTime } from "@/lib/time";
 import { markAllRead } from "@/app/actions/notifications";
 
 /** Лента уведомлений — общая для студентов и сотрудников. */
-export async function NotificationsView({ personId, base, onlyUnread }: { personId: string; base: string; onlyUnread: boolean }) {
+export async function NotificationsView({ personId, base, onlyUnread, tagFor }: { personId: string; base: string; onlyUnread: boolean; tagFor?: (link: string | null) => string | null }) {
   const [list, unread] = await Promise.all([
     db.notification.findMany({ where: { personId, ...(onlyUnread ? { readAt: null } : {}) }, orderBy: { createdAt: "desc" }, take: 50 }),
     db.notification.count({ where: { personId, readAt: null } }),
@@ -29,6 +29,7 @@ export async function NotificationsView({ personId, base, onlyUnread }: { person
                 <span className="shrink-0 text-xs text-muted-foreground">{fmtDateTime(n.createdAt)}</span>
               </div>
               <p className="text-sm">{n.body}</p>
+              {tagFor?.(n.link) && <span className="mt-1 inline-block rounded-sm bg-muted px-1.5 py-0.5 text-xs font-semibold text-navy">{tagFor(n.link)}</span>}
             </a>
           </li>
         ))}

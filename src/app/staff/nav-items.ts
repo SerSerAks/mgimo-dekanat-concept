@@ -24,3 +24,10 @@ export const STAFF_NAV: Record<string, NavItem[]> = {
     { href: "/staff/accounts", label: "Аккаунты", icon: "check" },
   ],
 };
+
+/** Каким должностям принадлежит страница — по меню. Нужно совместителям (SPEC §17): пометка уведомления и автопереключение. */
+export function rolesForPath(path: string | null): string[] {
+  if (!path) return [];
+  const clean = path.split("?")[0];
+  return Object.entries(STAFF_NAV).filter(([, items]) => items.some((i) => clean === i.href || clean.startsWith(i.href + "/"))).map(([role]) => role);
+}

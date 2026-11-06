@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useActionState, useState } from "react";
-import { createAccount, createBulk, deleteAccount, previewBulk, resetPassword, updateAccount, type AccState, type Cred, type EditState, type PreviewState } from "@/app/actions/accounts";
+import { appointExisting, createAccount, createBulk, deleteAccount, previewBulk, removeAppointment, resetPassword, updateAccount, type AccState, type Cred, type EditState, type PreviewState } from "@/app/actions/accounts";
 import { Button } from "@/components/ui/button";
 
 /** Типовые должности деканата: декан → заместители → начальники курсов, руководители магистерских программ, специалисты. */
@@ -215,14 +215,14 @@ type EditPerson = {
  * «Изменить анкету» — раскрывающаяся форма под строкой аккаунта.
  * mode: dean — ФИО и факультет (проректор); staff — сотрудник деканата; self — своя карточка; supervisor — преподаватель; fio — только ФИО.
  */
-export function EditAccount({ mode, person, faculties = [], managers = [], label = "Изменить анкету" }: { mode: "dean" | "staff" | "self" | "supervisor" | "fio"; person: EditPerson; faculties?: Opt[]; managers?: { id: string; label: string }[]; label?: string }) {
+export function EditAccount({ mode, person, faculties = [], managers = [], label = "Изменить анкету" }: { mode: "dean" | "staff" | "self" | "supervisor" | "supervisor-extra" | "fio"; person: EditPerson; faculties?: Opt[]; managers?: { id: string; label: string }[]; label?: string }) {
   const [state, action, pending] = useActionState<EditState, FormData>(updateAccount, undefined);
   return (
     <details className="group mt-2 w-full">
       <summary className="inline-flex h-11 cursor-pointer list-none items-center rounded-sm border px-3 text-sm">{label}</summary>
       <form onSubmit={keepValues(action)} className="mt-3 space-y-3 rounded-lg border bg-muted/30 p-3">
         <input type="hidden" name="id" value={person.id} />
-        {mode !== "self" && <Field label="ФИО" hint="Логин не меняется — человек входит по прежнему"><input name="fio" required defaultValue={person.fio} className={f} /></Field>}
+        {mode !== "self" && mode !== "supervisor-extra" && <Field label="ФИО" hint="Логин не меняется — человек входит по прежнему"><input name="fio" required defaultValue={person.fio} className={f} /></Field>}
         {mode === "dean" && <FacultyPicker faculties={faculties} defaultValue={person.facultyId} />}
         {mode === "staff" && !person.isHead && (
           <>
@@ -240,7 +240,7 @@ export function EditAccount({ mode, person, faculties = [], managers = [], label
             <Field label="Рабочий телефон"><input name="workPhone" maxLength={40} defaultValue={person.phone ?? ""} className={f} /></Field>
           </>
         )}
-        {mode === "supervisor" && (
+        {(mode === "supervisor" || mode === "supervisor-extra") && (
           <>
             <div className="grid grid-cols-2 gap-2">
               <Field label="Должность"><input name="position" required defaultValue={person.position ?? "преподаватель"} className={f} /></Field>
@@ -270,6 +270,39 @@ export function DeleteAccountButton({ id, kind }: { id: string; kind: "dean" | "
     <form action={action} onSubmit={(e) => { if (!confirm(DELETE_WARN[kind])) e.preventDefault(); }}>
       <input type="hidden" name="id" value={id} />
       <button type="submit" disabled={pending} className="h-11 rounded-sm border border-brand-red/40 px-3 text-sm text-brand-red">{pending ? "…" : kind === "department" ? "Удалить аккаунт" : "Удалить анкету"}</button>
+      {state?.error && <p className="text-xs text-brand-red">{state.error}</p>}
+    </form>
+  );
+}
+
+/** Назначить существующего сотрудника по логину на вторую должность (SPEC §17). */
+export function AppointExisting({ kind, departments, managers }: { kind: string; departments: Opt[]; managers: { id: string; label: string }[] }) {
+  const [state, action, pending] = useActionState<AccState, FormData>(appointExisting, undefined);
+  return (
+    <form onSubmit={keepValues(action)} className="space-y-3" key={state?.info ?? "appoint"}>
+      <input type="hidden" name="kind" value={kind} />
+      <Field label="Логин сотрудника" hint="Например, Lebedeva_A_S — сотрудник вашего факультета"><input name="login" required autoComplete="off" className={f} /></Field>
+      {kind === "department" && <Field label="Руководитель какой кафедры"><select name="departmentId" required className={f} defaultValue="">{[<option key="" value="" disabled>Выберите…</option>, ...departments.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)]}</select></Field>}
+      {kind === "staff" && (
+        <>
+          <Field label="Должность в деканате"><input name="position" required list="positions-appoint" placeholder="Заместитель декана" className={f} /><datalist id="positions-appoint">{POSITIONS.map((p) => <option key={p} value={p} />)}</datalist></Field>
+          <Field label="Руководитель в структуре"><select name="managerId" className={f} defaultValue={managers[0]?.id}>{managers.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></Field>
+        </>
+      )}
+      {state?.error && <p role="alert" className="text-sm text-brand-red">{state.error}</p>}
+      {state?.info && <p role="status" className="text-sm font-semibold text-status-ok">{state.info}</p>}
+      <Button type="submit" variant="outline" className="h-11 w-full" disabled={pending}>{pending ? "Назначаем…" : "Назначить на должность"}</Button>
+    </form>
+  );
+}
+
+export function RemoveAppointment({ id }: { id: string }) {
+  const [state, action, pending] = useActionState<EditState, FormData>(removeAppointment, undefined);
+  if (state?.ok) return <p role="status" className="text-sm font-semibold text-status-ok">{state.ok}</p>;
+  return (
+    <form action={action} onSubmit={(e) => { if (!confirm("Снять с этой должности? Учётка и основная должность человека останутся.")) e.preventDefault(); }}>
+      <input type="hidden" name="appointmentId" value={id} />
+      <button type="submit" disabled={pending} className="h-11 rounded-sm border border-brand-red/40 px-3 text-sm text-brand-red">{pending ? "…" : "Снять с должности"}</button>
       {state?.error && <p className="text-xs text-brand-red">{state.error}</p>}
     </form>
   );

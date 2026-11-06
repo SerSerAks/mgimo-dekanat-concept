@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { createSession, destroySession, homeFor } from "@/lib/auth";
+import { createSession, destroySession, homeFor, switchRole } from "@/lib/auth";
 import { dummyHash, verifyPassword } from "@/lib/password";
 import { isLoginBlocked, recordLoginAttempt } from "@/lib/rate-limit";
 
@@ -37,11 +37,19 @@ export async function login(_: LoginState, formData: FormData): Promise<LoginSta
   // Одинаковое сообщение для «нет логина» и «неверный пароль» — не подсказываем, какие логины существуют.
   if (!ok || !person) return { error: "Неверный логин или пароль", login: parsed.data.login };
 
-  await createSession(person.id);
-  redirect(person.mustChangePassword ? "/account/password" : homeFor(person.role));
+  const extraRole = await createSession(person.id);
+  redirect(person.mustChangePassword ? "/account/password" : homeFor(extraRole ?? person.role));
 }
 
 export async function logout() {
   await destroySession();
   redirect("/login");
+}
+
+/** Переключатель должностей в шапке (SPEC §17): та же учётка, другая роль и подразделение. */
+export async function switchRoleAction(form: FormData) {
+  const raw = String(form.get("appointmentId") ?? "");
+  const r = await switchRole(raw === "primary" ? null : raw);
+  if (!r) redirect("/");
+  redirect(homeFor(r.role));
 }

@@ -52,8 +52,12 @@ export function campaignStudents(db: PrismaClient, c: Camp) {
 
 /** Руководители кампании: кафедры (НИР) или всего факультета, которые берут студентов этого уровня. */
 export function campaignSupervisors(db: PrismaClient, c: Camp) {
-  const where = c.departmentId ? { staffDepartmentId: c.departmentId } : { staffDepartment: { facultyId: c.facultyId } };
-  return db.person.findMany({ where: { role: "SUPERVISOR", ...where, supervisorProfile: { levels: { has: c.level } } }, select: { id: true } });
+  const unit = c.departmentId ? { staffDepartmentId: c.departmentId } : { staffDepartment: { facultyId: c.facultyId } };
+  // преподаватели по основной должности и совместители (SPEC §17)
+  return db.person.findMany({
+    where: { OR: [{ role: "SUPERVISOR", ...unit }, { appointments: { some: { role: "SUPERVISOR", ...unit } } }], supervisorProfile: { levels: { has: c.level } } },
+    select: { id: true },
+  });
 }
 
 const fmt = (x: Date) => new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", day: "numeric", month: "long" }).format(x);

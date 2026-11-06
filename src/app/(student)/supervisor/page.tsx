@@ -18,7 +18,7 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
   const q = (sp.q ?? "").trim().slice(0, 60);
   const e = await db.enrollment.findFirstOrThrow({
     where: { id: user.enrollment.id, personId: user.id },
-    include: { supervisor: { include: { supervisorProfile: true, staffDepartment: true } }, thesis: true },
+    include: { supervisor: { include: { supervisorProfile: true, staffDepartment: true, appointments: { where: { role: "SUPERVISOR" }, include: { staffDepartment: true } } } }, thesis: true },
   });
   const [camps, requests] = await Promise.all([
     campaignsFor(db, e),
@@ -37,7 +37,7 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
         <section className="rounded-lg border p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{workLabel("THESIS", e.level)}</p>
           <b className="text-navy">{fio(e.supervisor)}</b>
-          <p className="text-sm">{e.supervisor.supervisorProfile?.position}{e.supervisor.supervisorProfile?.degree ? `, ${e.supervisor.supervisorProfile.degree}` : ""} · {e.supervisor.staffDepartment?.name}</p>
+          <p className="text-sm">{e.supervisor.supervisorProfile?.position}{e.supervisor.supervisorProfile?.degree ? `, ${e.supervisor.supervisorProfile.degree}` : ""} · {e.supervisor.appointments[0]?.staffDepartment.name ?? e.supervisor.staffDepartment?.name}</p>
           {e.thesis?.topic && <p className="mt-1 text-sm">Тема: «{e.thesis.topic}» — {TOPIC[e.thesis.topicStatus]}</p>}
         </section>
       )}
@@ -97,7 +97,7 @@ async function Campaign({ campaign: c, enrollment: e, requests, q }: {
       campaignId: c.id,
       ...(q ? { supervisor: { OR: [{ lastName: { contains: q, mode: "insensitive" } }, { supervisorProfile: { interests: { contains: q, mode: "insensitive" } } }] } } : {}),
     },
-    include: { supervisor: { include: { supervisorProfile: true, staffDepartment: true } } },
+    include: { supervisor: { include: { supervisorProfile: true, staffDepartment: true, appointments: { where: { role: "SUPERVISOR" }, include: { staffDepartment: true } } } } },
     orderBy: { supervisor: { lastName: "asc" } },
   });
   const taken = await db.supervisorRequest.groupBy({ by: ["supervisorId"], where: { campaignId: c.id, status: "ACCEPTED" }, _count: true });
@@ -124,7 +124,7 @@ async function Campaign({ campaign: c, enrollment: e, requests, q }: {
                   <div className="min-w-0">
                     <b className="text-navy">{fio(s)}</b>
                     <p className="text-sm">{p.position}{p.degree ? `, ${p.degree}` : ""}</p>
-                    <p className="text-sm text-muted-foreground">{s.staffDepartment?.name}</p>
+                    <p className="text-sm text-muted-foreground">{s.appointments[0]?.staffDepartment.name ?? s.staffDepartment?.name}</p>
                   </div>
                   <span className={`shrink-0 rounded-sm px-2 py-1 text-xs font-semibold text-white ${free ? "bg-status-ok" : "bg-status-new"}`}>{free ? `свободно ${free} из ${slots}` : "мест нет"}</span>
                 </div>

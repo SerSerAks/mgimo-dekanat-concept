@@ -5,16 +5,17 @@ import { Logo } from "./logo";
 import { Disclaimer } from "./disclaimer";
 import { BottomNav, SideNav, type NavItem } from "./nav";
 
-export function AppShell({ items, mobileItems, unread, userLabel, aside, notificationsHref = "/notifications", children }: {
-  items: NavItem[]; mobileItems?: NavItem[]; unread: number; userLabel: string; aside?: React.ReactNode; notificationsHref?: string; children: React.ReactNode;
+export function AppShell({ items, mobileItems, unread, userLabel, aside, roleSwitch, notificationsHref = "/notifications", children }: {
+  items: NavItem[]; mobileItems?: NavItem[]; unread: number; userLabel: string; aside?: React.ReactNode; roleSwitch?: React.ReactNode; notificationsHref?: string; children: React.ReactNode;
 }) {
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <Link href="/" aria-label="На главную"><Logo compact /></Link>
-          <div className="flex items-center gap-3">
-            <span className="hidden text-sm text-muted-foreground sm:inline">{userLabel}</span>
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <span className="hidden text-sm text-muted-foreground lg:inline">{userLabel}</span>
+            {roleSwitch}
             <Link href={notificationsHref} className="relative grid size-11 place-items-center rounded-sm hover:bg-muted" aria-label={`Уведомления: ${unread} непрочитанных`}>
               <Bell className="size-5 text-navy" aria-hidden />
               {unread > 0 && (

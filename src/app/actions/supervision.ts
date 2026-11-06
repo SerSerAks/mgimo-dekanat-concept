@@ -52,10 +52,12 @@ export async function withdrawSupervisorRequest(form: FormData) {
 
 // ---------- руководитель ----------
 
-async function ownCampaign(user: { id: string }, campaignId: number) {
-  const me = await db.person.findUniqueOrThrow({ where: { id: user.id }, include: { staffDepartment: true, supervisorProfile: true } });
+async function ownCampaign(user: { id: string; staffDepartmentId: number | null }, campaignId: number) {
+  const me = await db.person.findUniqueOrThrow({ where: { id: user.id }, include: { supervisorProfile: true } });
+  // кафедра — из текущей должности (может быть дополнительной, SPEC §17), а не из карточки
+  const dep = await db.department.findUnique({ where: { id: user.staffDepartmentId ?? -1 } });
   // кампании факультета; НИР кафедры — только её руководителям
-  const c = await db.supervisionCampaign.findFirst({ where: { id: campaignId, facultyId: me.staffDepartment?.facultyId ?? -1, OR: [{ departmentId: null }, { departmentId: me.staffDepartmentId ?? -1 }] } });
+  const c = await db.supervisionCampaign.findFirst({ where: { id: campaignId, facultyId: dep?.facultyId ?? -1, OR: [{ departmentId: null }, { departmentId: dep?.id ?? -1 }] } });
   if (!c || !me.supervisorProfile?.levels.includes(c.level)) return null;
   return c;
 }

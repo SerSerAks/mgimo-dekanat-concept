@@ -128,6 +128,22 @@ export function accountScope(user: CurrentUser): Prisma.PersonWhereInput {
   }
 }
 
+/**
+ * Дополнительные должности (SPEC §17), которые пользователь назначает и снимает:
+ * деканат — «руководитель кафедры» на кафедрах своего факультета, кафедра — «преподаватель» своей кафедры.
+ * Пароль и ФИО человека с совмещением меняет только руководитель по ОСНОВНОЙ должности (accountScope).
+ */
+export function appointmentScope(user: CurrentUser): Prisma.AppointmentWhereInput {
+  if (user.role === "DEAN_OFFICE" && user.staffFacultyId != null) return { role: "DEPARTMENT", staffDepartment: { facultyId: user.staffFacultyId } };
+  if (user.role === "DEPARTMENT" && user.staffDepartmentId != null) return { role: "SUPERVISOR", staffDepartmentId: user.staffDepartmentId };
+  return { id: "__none__" };
+}
+
+/** Кого пользователь видит в списках аккаунтов: управляемые аккаунты + совместители на его участке. */
+export function staffListScope(user: CurrentUser): Prisma.PersonWhereInput {
+  return { OR: [accountScope(user), { appointments: { some: appointmentScope(user) } }] };
+}
+
 /** Какие аккаунты пользователь может создавать. */
 export function creatableKinds(user: CurrentUser) {
   switch (user.role) {
