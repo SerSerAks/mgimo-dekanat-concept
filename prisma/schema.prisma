@@ -92,6 +92,18 @@ model Faculty {
   announcements   Announcement[]
   practicePeriods PracticePeriod[]
   campaigns       SupervisionCampaign[]
+  positions       FacultyPosition[]
+}
+
+/// Справочник должностей деканата факультета — подсказки при создании сотрудника; правит декан (SPEC §15)
+model FacultyPosition {
+  id        Int     @id @default(autoincrement())
+  facultyId Int
+  faculty   Faculty @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+  name      String
+  sort      Int     @default(0)
+
+  @@unique([facultyId, name])
 }
 
 model Department {

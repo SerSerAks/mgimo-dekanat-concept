@@ -1,15 +1,8 @@
 "use client";
 
 import { startTransition, useActionState, useState } from "react";
-import { appointExisting, createAccount, createBulk, deleteAccount, previewBulk, removeAppointment, resetPassword, updateAccount, type AccState, type Cred, type EditState, type PreviewState } from "@/app/actions/accounts";
+import { appointExisting, createAccount, createBulk, deleteAccount, editPosition, previewBulk, removeAppointment, resetPassword, updateAccount, type AccState, type Cred, type EditState, type PreviewState } from "@/app/actions/accounts";
 import { Button } from "@/components/ui/button";
-
-/** Типовые должности деканата: декан → заместители → начальники курсов, руководители магистерских программ, специалисты. */
-export const POSITIONS = [
-  "Заместитель декана по учебной работе", "Заместитель декана по работе со студентами", "Заместитель декана по магистратуре",
-  "Начальник 1 курса", "Начальник 2 курса", "Начальник 3 курса", "Начальник 4 курса",
-  "Руководитель магистерской программы", "Специалист по учебной работе", "Методист", "Секретарь деканата",
-];
 
 /** Отправка без автосброса формы React 19: при ошибке введённое не пропадает. */
 const keepValues = (action: (fd: FormData) => void) => (e: React.FormEvent<HTMLFormElement>) => {
@@ -103,8 +96,7 @@ export function CreateForm({ kind, faculties, departments, programs, groups, man
       {kind === "staff" && (
         <>
           <Field label="Должность">
-            <input name="position" required list="positions" placeholder="Заместитель декана · Начальник 1 курса" className={f} />
-            <datalist id="positions">{POSITIONS.map((p) => <option key={p} value={p} />)}</datalist>
+            <input name="position" required list="dean-positions" placeholder="Заместитель декана · Начальник 1 курса" className={f} />
           </Field>
           <Field label="Руководитель в структуре"><select name="managerId" className={f} defaultValue={managers[0]?.id}>{managers.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></Field>
         </>
@@ -226,7 +218,7 @@ export function EditAccount({ mode, person, faculties = [], managers = [], label
         {mode === "dean" && <FacultyPicker faculties={faculties} defaultValue={person.facultyId} />}
         {mode === "staff" && !person.isHead && (
           <>
-            <Field label="Должность"><input name="position" required list="positions-edit" defaultValue={person.position ?? ""} className={f} /><datalist id="positions-edit">{POSITIONS.map((p) => <option key={p} value={p} />)}</datalist></Field>
+            <Field label="Должность"><input name="position" required list="dean-positions" defaultValue={person.position ?? ""} className={f} /></Field>
             <Field label="Руководитель в структуре"><select name="managerId" defaultValue={person.managerId ?? ""} className={f}>{person.managerId && !managers.some((m) => m.id === person.managerId) && <option value={person.managerId}>— без изменений —</option>}{managers.filter((m) => m.id !== person.id).map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></Field>
           </>
         )}
@@ -285,7 +277,7 @@ export function AppointExisting({ kind, departments, managers }: { kind: string;
       {kind === "department" && <Field label="Руководитель какой кафедры"><select name="departmentId" required className={f} defaultValue="">{[<option key="" value="" disabled>Выберите…</option>, ...departments.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)]}</select></Field>}
       {kind === "staff" && (
         <>
-          <Field label="Должность в деканате"><input name="position" required list="positions-appoint" placeholder="Заместитель декана" className={f} /><datalist id="positions-appoint">{POSITIONS.map((p) => <option key={p} value={p} />)}</datalist></Field>
+          <Field label="Должность в деканате"><input name="position" required list="dean-positions" placeholder="Заместитель декана" className={f} /></Field>
           <Field label="Руководитель в структуре"><select name="managerId" className={f} defaultValue={managers[0]?.id}>{managers.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></Field>
         </>
       )}
@@ -305,5 +297,42 @@ export function RemoveAppointment({ id }: { id: string }) {
       <button type="submit" disabled={pending} className="h-11 rounded-sm border border-brand-red/40 px-3 text-sm text-brand-red">{pending ? "…" : "Снять с должности"}</button>
       {state?.error && <p className="text-xs text-brand-red">{state.error}</p>}
     </form>
+  );
+}
+
+/** Справочник должностей деканата: декан добавляет, переименовывает, удаляет, меняет порядок. */
+export function PositionsEditor({ positions }: { positions: { id: number; name: string }[] }) {
+  const [state, action, pending] = useActionState<EditState, FormData>(editPosition, undefined);
+  const run = (fields: Record<string, string>) => {
+    const fd = new FormData();
+    Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
+    startTransition(() => action(fd));
+  };
+  return (
+    <div className="space-y-3">
+      <ul className="divide-y rounded-lg border">
+        {positions.map((p, i) => (
+          <li key={`${p.id}-${p.name}`} className="flex flex-wrap items-center gap-2 p-2">
+            <form className="flex w-full min-w-0 gap-2 sm:w-auto sm:flex-1" onSubmit={(e) => { e.preventDefault(); run({ op: "rename", id: String(p.id), name: String(new FormData(e.currentTarget).get("name") ?? "") }); }}>
+              <label htmlFor={`pos-${p.id}`} className="sr-only">Название должности</label>
+              <input id={`pos-${p.id}`} name="name" defaultValue={p.name} maxLength={80} className={`${f} min-w-0 flex-1`} />
+              <button type="submit" disabled={pending} className="h-11 shrink-0 rounded-sm border px-3 text-sm">Сохранить</button>
+            </form>
+            <div className="ml-auto flex gap-1">
+              <button type="button" disabled={pending || i === 0} onClick={() => run({ op: "up", id: String(p.id) })} className="grid size-11 place-items-center rounded-sm border text-sm disabled:opacity-40" aria-label={`Выше: ${p.name}`}>↑</button>
+              <button type="button" disabled={pending || i === positions.length - 1} onClick={() => run({ op: "down", id: String(p.id) })} className="grid size-11 place-items-center rounded-sm border text-sm disabled:opacity-40" aria-label={`Ниже: ${p.name}`}>↓</button>
+              <button type="button" disabled={pending} onClick={() => { if (confirm(`Убрать «${p.name}» из списка? У сотрудников с этой должностью она останется.`)) run({ op: "delete", id: String(p.id) }); }} className="h-11 rounded-sm border border-brand-red/40 px-3 text-sm text-brand-red">Удалить</button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <form className="flex flex-wrap gap-2 sm:flex-nowrap" key={state?.ok ?? "add"} onSubmit={(e) => { e.preventDefault(); run({ op: "add", name: String(new FormData(e.currentTarget).get("name") ?? "") }); }}>
+        <label htmlFor="pos-new" className="sr-only">Новая должность</label>
+        <input id="pos-new" name="name" required minLength={3} maxLength={80} placeholder="Новая должность, например «Начальник 5 курса»" className={`${f} min-w-0 flex-1 basis-full sm:basis-auto`} />
+        <Button type="submit" className="h-11 w-full shrink-0 sm:w-auto" disabled={pending}>Добавить</Button>
+      </form>
+      {state?.error && <p role="alert" className="text-sm text-brand-red">{state.error}</p>}
+      {state?.ok && <p role="status" className="text-sm font-semibold text-status-ok">{state.ok}</p>}
+    </div>
   );
 }

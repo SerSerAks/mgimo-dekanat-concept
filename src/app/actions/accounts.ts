@@ -494,6 +494,61 @@ export async function removeAppointment(_: EditState, form: FormData): Promise<E
   return { ok: `Снят(а) с должности: ${a.role === "DEPARTMENT" ? "руководитель" : "преподаватель"} · ${a.staffDepartment.name}` };
 }
 
+// ---------- справочник должностей деканата (правит декан) ----------
+
+/**
+ * Одна форма — одно действие (op): add, rename, delete, up, down.
+ * Только декан и только должности своего факультета; чужая запись — «не найдена».
+ */
+export async function editPosition(_: EditState, form: FormData): Promise<EditState> {
+  const user = await requireUser(["DEAN_OFFICE"]);
+  if (!user.isHead || user.staffFacultyId == null) return { error: "Список должностей меняет декан" };
+  const facultyId = user.staffFacultyId;
+  const op = String(form.get("op") ?? "");
+  const name = z.string().trim().min(3, "Название — от 3 символов").max(80, "Название — до 80 символов");
+  const done = (ok: string) => { revalidatePath("/staff/accounts"); return { ok }; };
+
+  if (op === "add") {
+    const n = name.safeParse(form.get("name"));
+    if (!n.success) return { error: n.error.issues[0].message };
+    if (await db.facultyPosition.findFirst({ where: { facultyId, name: { equals: n.data, mode: "insensitive" } } })) return { error: "Такая должность уже есть в списке" };
+    const last = await db.facultyPosition.aggregate({ where: { facultyId }, _max: { sort: true } });
+    await db.facultyPosition.create({ data: { facultyId, name: n.data, sort: (last._max.sort ?? 0) + 1 } });
+    return done(`Добавлено: ${n.data}`);
+  }
+
+  const pos = await db.facultyPosition.findFirst({ where: { id: Number(form.get("id")) || -1, facultyId } });
+  if (!pos) return { error: "Должность не найдена" };
+
+  if (op === "rename") {
+    const n = name.safeParse(form.get("name"));
+    if (!n.success) return { error: n.error.issues[0].message };
+    if (n.data === pos.name) return { error: "Название не изменилось" };
+    if (await db.facultyPosition.findFirst({ where: { facultyId, id: { not: pos.id }, name: { equals: n.data, mode: "insensitive" } } })) return { error: "Такая должность уже есть в списке" };
+    // сотрудники с этой должностью получают новое название — в дереве и у студентов в «Мой деканат»
+    const [, moved] = await db.$transaction([
+      db.facultyPosition.update({ where: { id: pos.id }, data: { name: n.data } }),
+      db.person.updateMany({ where: { role: "DEAN_OFFICE", staffFacultyId: facultyId, position: pos.name }, data: { position: n.data } }),
+    ]);
+    revalidatePath("/dekanat");
+    return done(`Переименовано${moved.count ? `, у сотрудников обновлено: ${moved.count}` : ""}`);
+  }
+  if (op === "delete") {
+    // у сотрудников должность остаётся — удаляется только подсказка из списка
+    await db.facultyPosition.delete({ where: { id: pos.id } });
+    return done(`Удалено из списка: ${pos.name}`);
+  }
+  if (op === "up" || op === "down") {
+    const list = await db.facultyPosition.findMany({ where: { facultyId }, orderBy: [{ sort: "asc" }, { id: "asc" }] });
+    const i = list.findIndex((x) => x.id === pos.id), j = op === "up" ? i - 1 : i + 1;
+    if (j < 0 || j >= list.length) return { ok: "" };
+    [list[i], list[j]] = [list[j], list[i]];
+    await db.$transaction(list.map((x, k) => db.facultyPosition.update({ where: { id: x.id }, data: { sort: k } })));
+    return done("");
+  }
+  return { error: "Неизвестное действие" };
+}
+
 // ---------- смена своего пароля ----------
 
 export type PwState = { error?: string } | undefined;

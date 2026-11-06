@@ -3,7 +3,8 @@ import type { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { accountScope, appointmentScope, creatableKinds, staffListScope } from "@/lib/access";
-import { CreateForm, BulkUpload, ResetButton, EditAccount, DeleteAccountButton, AppointExisting, RemoveAppointment } from "./account-forms";
+import { CreateForm, BulkUpload, ResetButton, EditAccount, DeleteAccountButton, AppointExisting, RemoveAppointment, PositionsEditor } from "./account-forms";
+import { facultyPositions } from "@/lib/positions";
 import { deanTree } from "@/lib/dean-tree";
 import { DeanTreeView } from "@/components/dean-tree-view";
 
@@ -55,6 +56,8 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
   const staffCards = new Map((kind === "staff" ? await db.person.findMany({ where: { id: { in: [...managed] } } }) : []).map((p) => [p.id, p]));
   const initials = (p: { lastName: string; firstName: string; middleName: string | null }) => `${p.lastName} ${p.firstName[0]}.${p.middleName ? ` ${p.middleName[0]}.` : ""}`;
   const fio = (p: { lastName: string; firstName: string; middleName: string | null }) => `${p.lastName} ${p.firstName}${p.middleName ? " " + p.middleName : ""}`;
+  // справочник должностей деканата: подсказки в формах; редактирует декан
+  const positions = kind === "staff" && user.staffFacultyId != null ? await facultyPositions(user.staffFacultyId) : [];
   const managers = kind === "staff" ? [{ id: user.id, label: `Я — ${own.lastName} ${own.firstName}${own.position ? `, ${own.position.toLowerCase()}` : ""}` },
     ...(await db.person.findMany({ where: { id: { in: [...managed] } }, orderBy: { lastName: "asc" } })).map((p) => ({ id: p.id, label: `${p.lastName} ${p.firstName}${p.position ? `, ${p.position.toLowerCase()}` : ""}` }))] : [];
 
@@ -98,6 +101,14 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
         )}
       </section>
 
+      {kind === "staff" && <datalist id="dean-positions">{positions.map((p) => <option key={p.id} value={p.name} />)}</datalist>}
+      {kind === "staff" && user.isHead && (
+        <details className="rounded-lg border p-4">
+          <summary className="cursor-pointer font-semibold text-navy">Должности деканата · {positions.length}</summary>
+          <p className="my-3 text-sm text-muted-foreground">Это подсказки при создании сотрудника и правке анкеты. Переименование меняет должность и у сотрудников, которые её занимают; удаление — только убирает подсказку.</p>
+          <PositionsEditor positions={positions.map((p) => ({ id: p.id, name: p.name }))} />
+        </details>
+      )}
       {kind === "staff" ? (
         <section>
           <h2 className="mb-2 font-semibold text-navy">Структура деканата</h2>
