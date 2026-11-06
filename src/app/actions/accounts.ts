@@ -155,8 +155,6 @@ export async function createAccount(_: AccState, form: FormData): Promise<AccSta
     return { creds: [{ fio: fioText(fio), login: r.login, password: r.password, note: `Декан: ${fac.name}` }] };
   }
   if (kind === "staff" && user.role === "DEAN_OFFICE" && user.staffFacultyId != null) {
-    // перевод в деканат даёт управление учёткой (сброс пароля) — поэтому только декан, а не любой сотрудник деканата
-    if (!user.isHead) return { error: "Перевести сотрудника кафедры в деканат может только декан" };
     if (!card.position || card.position.length < 3) return { error: "Укажите должность" };
     // руководитель — сам создатель или сотрудник из его области управления
     const managerId = String(form.get("managerId") || user.id);
