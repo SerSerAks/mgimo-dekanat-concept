@@ -357,14 +357,17 @@ export async function updateAccount(_: EditState, form: FormData): Promise<EditS
   return { ok: "Анкета сохранена" };
 }
 
-// ---------- удаление анкеты декана (проректор) ----------
+// ---------- удаление анкеты: декан (проректор), руководитель кафедры (деканат) ----------
 
-export async function deleteDean(_: EditState, form: FormData): Promise<EditState> {
-  const user = await requireUser(["RECTOR"]);
+export async function deleteAccount(_: EditState, form: FormData): Promise<EditState> {
+  const user = await requireUser(["RECTOR", "DEAN_OFFICE"]);
   const id = String(form.get("id") ?? "");
-  const p = await db.person.findFirst({ where: { AND: [{ id }, accountScope(user)] } });
+  // проректор удаляет своих деканов, деканат — аккаунты кафедр своего факультета; остальное — «не найден»
+  const target: Prisma.PersonWhereInput = user.role === "RECTOR" ? { role: "DEAN_OFFICE", isHead: true } : { role: "DEPARTMENT" };
+  const p = await db.person.findFirst({ where: { AND: [{ id }, target, accountScope(user)] } });
   if (!p) return { error: "Аккаунт не найден" };
-  // подчинённые и созданные аккаунты не удаляются: подчинённые переходят к следующему декану факультета
+  // подчинённые и созданные аккаунты не удаляются: подчинённые декана переходят к следующему декану,
+  // преподаватели и аспиранты кафедры остаются за кафедрой — их увидит новый руководитель
   const unlink = [
     db.person.updateMany({ where: { managerId: id }, data: { managerId: null } }),
     db.person.updateMany({ where: { createdById: id }, data: { createdById: null } }),
@@ -373,14 +376,16 @@ export async function deleteDean(_: EditState, form: FormData): Promise<EditStat
   try {
     await db.$transaction([...unlink, db.person.delete({ where: { id } })]);
   } catch {
-    // у декана есть история (объявления, решения по заявкам) — её не стираем, аккаунт закрываем:
-    // снимаем с должности, отвязываем от факультета, пароль больше не подходит
+    // есть история (объявления, решения по темам и заявкам) — её не стираем, аккаунт закрываем:
+    // отвязываем от подразделения, пароль больше не подходит
     await db.$transaction([...unlink, db.person.update({ where: { id }, data: {
-      isHead: false, staffFacultyId: null, position: "Бывший декан", passwordHash: await hashPassword(generatePassword(32)), mustChangePassword: false,
+      isHead: false, staffFacultyId: null, staffDepartmentId: null,
+      position: p.role === "DEPARTMENT" ? "Бывший руководитель кафедры" : "Бывший декан",
+      passwordHash: await hashPassword(generatePassword(32)), mustChangePassword: false,
     } })]);
   }
   revalidatePath("/staff/accounts");
-  return { ok: "Анкета удалена — можно назначить нового декана" };
+  return { ok: p.role === "DEPARTMENT" ? "Аккаунт удалён — можно создать нового руководителя кафедры" : "Анкета удалена — можно назначить нового декана" };
 }
 
 // ---------- смена своего пароля ----------

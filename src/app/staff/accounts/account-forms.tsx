@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useActionState, useState } from "react";
-import { createAccount, createBulk, deleteDean, previewBulk, resetPassword, updateAccount, type AccState, type Cred, type EditState, type PreviewState } from "@/app/actions/accounts";
+import { createAccount, createBulk, deleteAccount, previewBulk, resetPassword, updateAccount, type AccState, type Cred, type EditState, type PreviewState } from "@/app/actions/accounts";
 import { Button } from "@/components/ui/button";
 
 /** Типовые должности деканата: декан → заместители → начальники курсов, руководители магистерских программ, специалисты. */
@@ -258,13 +258,18 @@ export function EditAccount({ mode, person, faculties = [], managers = [], label
   );
 }
 
-export function DeleteDeanButton({ id }: { id: string }) {
-  const [state, action, pending] = useActionState<EditState, FormData>(deleteDean, undefined);
+const DELETE_WARN = {
+  dean: "Удалить анкету декана? Вход по этому логину перестанет работать. Сотрудники деканата останутся и перейдут к новому декану.",
+  department: "Удалить аккаунт руководителя кафедры? Вход по этому логину перестанет работать. Преподаватели и аспиранты кафедры останутся — ими будет управлять новый руководитель.",
+};
+
+export function DeleteAccountButton({ id, kind }: { id: string; kind: "dean" | "department" }) {
+  const [state, action, pending] = useActionState<EditState, FormData>(deleteAccount, undefined);
   if (state?.ok) return <p role="status" className="text-sm font-semibold text-status-ok">{state.ok}</p>;
   return (
-    <form action={action} onSubmit={(e) => { if (!confirm("Удалить анкету декана? Вход по этому логину перестанет работать. Сотрудники деканата останутся и перейдут к новому декану.")) e.preventDefault(); }}>
+    <form action={action} onSubmit={(e) => { if (!confirm(DELETE_WARN[kind])) e.preventDefault(); }}>
       <input type="hidden" name="id" value={id} />
-      <button type="submit" disabled={pending} className="h-11 rounded-sm border border-brand-red/40 px-3 text-sm text-brand-red">{pending ? "…" : "Удалить анкету"}</button>
+      <button type="submit" disabled={pending} className="h-11 rounded-sm border border-brand-red/40 px-3 text-sm text-brand-red">{pending ? "…" : kind === "department" ? "Удалить аккаунт" : "Удалить анкету"}</button>
       {state?.error && <p className="text-xs text-brand-red">{state.error}</p>}
     </form>
   );

@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { accountScope, creatableKinds } from "@/lib/access";
-import { CreateForm, BulkUpload, ResetButton, EditAccount, DeleteDeanButton } from "./account-forms";
+import { CreateForm, BulkUpload, ResetButton, EditAccount, DeleteAccountButton } from "./account-forms";
 import { deanTree } from "@/lib/dean-tree";
 import { DeanTreeView } from "@/components/dean-tree-view";
 
@@ -130,7 +130,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <ResetButton id={p.id} />
-                    {kind === "dean" && <DeleteDeanButton id={p.id} />}
+                    {(kind === "dean" || kind === "department") && <DeleteAccountButton id={p.id} kind={kind} />}
                   </div>
                   {kind === "dean"
                     ? <EditAccount mode="dean" faculties={faculties.map((f) => ({ id: f.id, label: f.name }))} person={{ id: p.id, fio: fio(p), facultyId: p.staffFacultyId }} />
