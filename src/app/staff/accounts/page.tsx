@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { accountScope, creatableKinds } from "@/lib/access";
-import { CreateForm, BulkUpload, ResetButton } from "./account-forms";
+import { CreateForm, BulkUpload, ResetButton, EditAccount, DeleteDeanButton } from "./account-forms";
 import { deanTree } from "@/lib/dean-tree";
 import { DeanTreeView } from "@/components/dean-tree-view";
 
@@ -30,10 +30,10 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
   const [people, total, faculties, departments, programs, groups, own] = await Promise.all([
     db.person.findMany({
       where: { AND: [accountScope(user), byKind[kind], search] }, orderBy: [{ createdAt: "desc" }], take: 100,
-      include: { staffFaculty: true, staffDepartment: true, enrollments: { where: { status: "ACTIVE" }, include: { group: true, program: true } } },
+      include: { staffFaculty: true, staffDepartment: true, supervisorProfile: true, enrollments: { where: { status: "ACTIVE" }, include: { group: true, program: true } } },
     }),
     db.person.count({ where: { AND: [accountScope(user), byKind[kind]] } }),
-    user.role === "RECTOR" ? db.faculty.findMany({ orderBy: { name: "asc" }, include: { staff: { where: { role: "DEAN_OFFICE" }, select: { id: true } } } }) : Promise.resolve([]),
+    user.role === "RECTOR" ? db.faculty.findMany({ orderBy: { name: "asc" }, include: { staff: { where: { role: "DEAN_OFFICE", isHead: true }, select: { lastName: true, firstName: true, middleName: true } } } }) : Promise.resolve([]),
     user.role === "DEAN_OFFICE" ? db.department.findMany({ where: { facultyId: user.staffFacultyId ?? -1 }, orderBy: { name: "asc" } }) : Promise.resolve([]),
     user.role === "DEAN_OFFICE"
       ? db.program.findMany({ where: { facultyId: user.staffFacultyId ?? -1, level: { in: ["BACHELOR", "MASTER"] } }, orderBy: [{ level: "asc" }, { direction: "asc" }] })
@@ -45,6 +45,10 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
   // дерево деканата и кого из него можно выбрать руководителем / кому сбросить пароль
   const tree = kind === "staff" && user.staffFacultyId != null ? await deanTree(user.staffFacultyId, true) : [];
   const managed = new Set(kind === "staff" ? (await db.person.findMany({ where: { AND: [accountScope(user), { role: "DEAN_OFFICE" }] }, select: { id: true } })).map((p) => p.id) : []);
+  // анкеты сотрудников деканата для правки (только те, кем пользователь управляет)
+  const staffCards = new Map((kind === "staff" ? await db.person.findMany({ where: { id: { in: [...managed] } } }) : []).map((p) => [p.id, p]));
+  const initials = (p: { lastName: string; firstName: string; middleName: string | null }) => `${p.lastName} ${p.firstName[0]}.${p.middleName ? ` ${p.middleName[0]}.` : ""}`;
+  const fio = (p: { lastName: string; firstName: string; middleName: string | null }) => `${p.lastName} ${p.firstName}${p.middleName ? " " + p.middleName : ""}`;
   const managers = kind === "staff" ? [{ id: user.id, label: `Я — ${own.lastName} ${own.firstName}${own.position ? `, ${own.position.toLowerCase()}` : ""}` },
     ...(await db.person.findMany({ where: { id: { in: [...managed] } }, orderBy: { lastName: "asc" } })).map((p) => ({ id: p.id, label: `${p.lastName} ${p.firstName}${p.position ? `, ${p.position.toLowerCase()}` : ""}` }))] : [];
 
@@ -64,17 +68,17 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
         <div className="min-w-0 rounded-lg border p-4">
           <h2 className="mb-3 font-semibold text-navy">Создать: {KIND[kind].toLowerCase()}</h2>
           <CreateForm kind={kind}
-            faculties={faculties.map((f) => ({ id: f.id, label: `${f.name}${f.staff.length ? ` · уже есть ${f.staff.length}` : ""}` }))}
+            faculties={faculties.map((f) => ({ id: f.id, label: `${f.name}${f.staff[0] ? ` · декан ${initials(f.staff[0])}` : ""}` }))}
             departments={departments.map((d) => ({ id: d.id, label: d.name }))}
             programs={programs.map((p) => ({ id: p.id, label: `${p.specialtyCode ? p.specialtyCode + " " : ""}${p.direction}${p.name ? ` — ${p.name}` : ""}`, level: p.level }))}
             groups={groups.map((g) => ({ id: g.id, label: g.name, level: g.level, course: g.course }))}
             managers={managers} />
         </div>
-        {(kind === "student" || kind === "postgrad") && (
+        {(kind === "student" || kind === "postgrad" || kind === "supervisor") && (
           <div className="min-w-0 rounded-lg border p-4">
-            <h2 className="mb-1 font-semibold text-navy">Загрузить списком из Excel</h2>
-            <p className="mb-3 text-sm text-muted-foreground">Первая колонка — ФИО (или колонки «Фамилия», «Имя», «Отчество»){kind === "student" && ", можно колонку «Группа»"}. До 500 строк.</p>
-            <BulkUpload kind={kind}
+            <h2 className="mb-1 font-semibold text-navy">{kind === "supervisor" ? "Кабинеты преподавателей из Excel" : "Загрузить списком из Excel"}</h2>
+            <p className="mb-3 text-sm text-muted-foreground">Первая колонка — ФИО (или колонки «Фамилия», «Имя», «Отчество»){kind === "student" && ", можно колонку «Группа»"}{kind === "supervisor" && ", можно колонки «Должность» и «Степень»"}. Логины соберутся сами: Иванов Петр Владимирович → Ivanov_P_V. До 500 строк.</p>
+            <BulkUpload kind={kind as "student" | "postgrad" | "supervisor"}
               programs={programs.map((p) => ({ id: p.id, label: `${p.specialtyCode ? p.specialtyCode + " " : ""}${p.direction}${p.name ? ` — ${p.name}` : ""}`, level: p.level }))}
               groups={groups.map((g) => ({ id: g.id, label: g.name, level: g.level, course: g.course }))} />
           </div>
@@ -84,8 +88,20 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
       {kind === "staff" ? (
         <section>
           <h2 className="mb-2 font-semibold text-navy">Структура деканата</h2>
-          <p className="mb-3 text-sm text-muted-foreground">Так её видят студенты в разделе «Мой деканат» (без логинов).{own.isHead ? " Вы — декан: можете сбросить пароль любому сотруднику." : " Сбросить пароль можно своим прямым подчинённым."}</p>
-          {tree.length ? <DeanTreeView nodes={tree} action={(n) => managed.has(n.id) ? <div className="mt-2"><ResetButton id={n.id} /></div> : null} /> : <p className="rounded-lg border p-4 text-sm text-muted-foreground">В деканате пока никого нет.</p>}
+          <p className="mb-3 text-sm text-muted-foreground">Так её видят студенты в разделе «Мой деканат» (без логинов).{own.isHead ? " Вы — декан: правите анкеты и сбрасываете пароли всем сотрудникам деканата." : " Править анкеты и сбрасывать пароли можно своим прямым подчинённым."}</p>
+          <div className="mb-3">
+            <EditAccount mode="self" label="Моя карточка для студентов" person={{ id: own.id, fio: fio(own), duties: own.staffDuties, room: own.staffRoom, hours: own.staffHours, phone: own.workPhone }} />
+          </div>
+          {tree.length ? <DeanTreeView nodes={tree} action={(n) => {
+            const c = staffCards.get(n.id);
+            if (!c) return null;
+            return (
+              <div className="mt-2 flex flex-wrap items-start gap-2">
+                <ResetButton id={n.id} />
+                <EditAccount mode="staff" managers={managers} person={{ id: c.id, fio: fio(c), isHead: c.isHead, managerId: c.managerId, position: c.position, duties: c.staffDuties, room: c.staffRoom, hours: c.staffHours, phone: c.workPhone }} />
+              </div>
+            );
+          }} /> : <p className="rounded-lg border p-4 text-sm text-muted-foreground">В деканате пока никого нет.</p>}
         </section>
       ) : (
       <section>
@@ -112,7 +128,15 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
                     <p className="text-sm"><code className="rounded-sm bg-muted px-1">{p.login}</code> <span className="text-muted-foreground">· {detail}</span></p>
                     {p.mustChangePassword && <p className="text-xs font-semibold text-status-warn">Ещё не входил — пароль одноразовый</p>}
                   </div>
-                  <ResetButton id={p.id} />
+                  <div className="flex flex-wrap gap-2">
+                    <ResetButton id={p.id} />
+                    {kind === "dean" && <DeleteDeanButton id={p.id} />}
+                  </div>
+                  {kind === "dean"
+                    ? <EditAccount mode="dean" faculties={faculties.map((f) => ({ id: f.id, label: f.name }))} person={{ id: p.id, fio: fio(p), facultyId: p.staffFacultyId }} />
+                    : kind === "supervisor"
+                      ? <EditAccount mode="supervisor" person={{ id: p.id, fio: fio(p), position: p.supervisorProfile?.position, degree: p.supervisorProfile?.degree, interests: p.supervisorProfile?.interests, maxStudents: p.supervisorProfile?.maxStudents }} />
+                      : <EditAccount mode="fio" label="Исправить ФИО" person={{ id: p.id, fio: fio(p) }} />}
                 </li>
               );
             })}

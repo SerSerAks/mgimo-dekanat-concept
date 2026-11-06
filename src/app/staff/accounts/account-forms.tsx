@@ -1,8 +1,22 @@
 "use client";
 
-import { useActionState, useState } from "react";
-import { createAccount, createBulk, previewBulk, resetPassword, type AccState, type Cred, type PreviewState } from "@/app/actions/accounts";
+import { startTransition, useActionState, useState } from "react";
+import { createAccount, createBulk, deleteDean, previewBulk, resetPassword, updateAccount, type AccState, type Cred, type EditState, type PreviewState } from "@/app/actions/accounts";
 import { Button } from "@/components/ui/button";
+
+/** Типовые должности деканата: декан → заместители → начальники курсов, руководители магистерских программ, специалисты. */
+export const POSITIONS = [
+  "Заместитель декана по учебной работе", "Заместитель декана по работе со студентами", "Заместитель декана по магистратуре",
+  "Начальник 1 курса", "Начальник 2 курса", "Начальник 3 курса", "Начальник 4 курса",
+  "Руководитель магистерской программы", "Специалист по учебной работе", "Методист", "Секретарь деканата",
+];
+
+/** Отправка без автосброса формы React 19: при ошибке введённое не пропадает. */
+const keepValues = (action: (fd: FormData) => void) => (e: React.FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
+  const fd = new FormData(e.currentTarget);
+  startTransition(() => action(fd));
+};
 
 type Opt = { id: number; label: string; level?: string; course?: number };
 const f = "h-11 w-full min-w-0 max-w-full rounded-sm border border-input bg-background px-3";
@@ -58,7 +72,7 @@ export function CreateForm({ kind, faculties, departments, programs, groups, man
   const [state, action, pending] = useActionState<AccState, FormData>(createAccount, undefined);
   const [newDep, setNewDep] = useState(false);
   return (
-    <form action={action} className="space-y-3" key={state?.creds?.[0]?.login ?? "form"}>
+    <form onSubmit={keepValues(action)} className="space-y-3" key={state?.creds?.[0]?.login ?? "form"}>
       <input type="hidden" name="kind" value={kind} />
       <Field label={kind === "department" ? "ФИО сотрудника кафедры" : kind === "dean" ? "ФИО декана" : kind === "staff" ? "ФИО сотрудника" : kind === "supervisor" ? "ФИО преподавателя" : "ФИО"} hint="Фамилия Имя Отчество — логин соберётся сам">
         <input name="fio" required placeholder="Иванов Петр Владимирович" className={f} />
@@ -67,13 +81,14 @@ export function CreateForm({ kind, faculties, departments, programs, groups, man
       {kind === "staff" && (
         <>
           <Field label="Должность">
-            <input name="position" required list="positions" placeholder="Заместитель декана по учебной работе" className={f} />
-            <datalist id="positions">{["Заместитель декана по учебной работе", "Заместитель декана по работе со студентами", "Специалист по учебной работе", "Методист", "Секретарь деканата"].map((p) => <option key={p} value={p} />)}</datalist>
+            <input name="position" required list="positions" placeholder="Заместитель декана · Начальник 1 курса" className={f} />
+            <datalist id="positions">{POSITIONS.map((p) => <option key={p} value={p} />)}</datalist>
           </Field>
           <Field label="Руководитель в структуре"><select name="managerId" className={f} defaultValue={managers[0]?.id}>{managers.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></Field>
         </>
       )}
-      {(kind === "staff" || kind === "dean") && (
+      {kind === "dean" && <p className="text-xs text-muted-foreground">Кабинет, часы приёма и остальное декан заполнит сам в своей карточке.</p>}
+      {kind === "staff" && (
         <>
           <Field label="За что отвечает" hint="Это увидят студенты: «1–2 курс, справки и расписание»"><input name="duties" maxLength={300} className={f} /></Field>
           <div className="grid grid-cols-2 gap-2">
@@ -105,7 +120,7 @@ export function CreateForm({ kind, faculties, departments, programs, groups, man
   );
 }
 
-export function BulkUpload({ kind, programs, groups }: { kind: "student" | "postgrad"; programs: Opt[]; groups: Opt[] }) {
+export function BulkUpload({ kind, programs, groups }: { kind: "student" | "postgrad" | "supervisor"; programs: Opt[]; groups: Opt[] }) {
   const [preview, previewAction, previewing] = useActionState<PreviewState, FormData>(previewBulk, undefined);
   const [created, createAction, creating] = useActionState<AccState, FormData>(createBulk, undefined);
   const ok = preview?.rows?.filter((r) => !r.error) ?? [];
@@ -114,7 +129,10 @@ export function BulkUpload({ kind, programs, groups }: { kind: "student" | "post
   return (
     <div className="space-y-3">
       <form action={previewAction} className="space-y-3">
-        <LearnerParams kind={kind} programs={programs} groups={groups} />
+        <input type="hidden" name="kind" value={kind} />
+        {kind === "supervisor"
+          ? <Field label="Сколько студентов может вести каждый" hint="Потом можно поправить в анкете конкретного преподавателя"><input name="maxStudents" type="number" min={0} max={15} defaultValue={5} className={f} /></Field>
+          : <LearnerParams kind={kind} programs={programs} groups={groups} />}
         <Field label="Файл со списком (.xlsx или .csv)"><input name="file" type="file" required accept=".xlsx,.csv,.txt" className="block w-full text-sm file:mr-3 file:h-11 file:rounded-sm file:border-0 file:bg-secondary file:px-4 file:font-semibold file:text-navy" /></Field>
         {preview?.error && <p role="alert" className="text-sm text-brand-red">{preview.error}</p>}
         <Button type="submit" variant="outline" className="h-11 w-full" disabled={previewing}>{previewing ? "Читаем файл…" : "Проверить список"}</Button>
@@ -124,7 +142,7 @@ export function BulkUpload({ kind, programs, groups }: { kind: "student" | "post
           <p className="text-sm"><b className="text-status-ok">Готовы к созданию: {ok.length}</b>{bad.length > 0 && <> · <b className="text-brand-red">с ошибками: {bad.length}</b> (будут пропущены)</>}</p>
           <div className="max-h-72 overflow-auto rounded-sm border">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-muted text-left text-xs text-muted-foreground"><tr><th className="p-2">Стр.</th><th className="p-2">ФИО</th><th className="p-2">Логин</th>{kind === "student" && <th className="p-2">Группа</th>}</tr></thead>
+              <thead className="sticky top-0 bg-muted text-left text-xs text-muted-foreground"><tr><th className="p-2">Стр.</th><th className="p-2">ФИО</th><th className="p-2">Логин</th>{kind === "student" && <th className="p-2">Группа</th>}{kind === "supervisor" && <th className="p-2">Должность</th>}</tr></thead>
               <tbody className="divide-y">
                 {preview.rows.map((r) => (
                   <tr key={r.line} className={r.error ? "bg-brand-red/5" : ""}>
@@ -132,6 +150,7 @@ export function BulkUpload({ kind, programs, groups }: { kind: "student" | "post
                     <td className="p-2">{r.fio}{r.error && <span className="block text-xs text-brand-red">{r.error}</span>}</td>
                     <td className="p-2"><code>{r.login}</code></td>
                     {kind === "student" && <td className="p-2">{r.group ?? ""}</td>}
+                    {kind === "supervisor" && <td className="p-2">{[r.position ?? "преподаватель", r.degree].filter(Boolean).join(", ")}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -139,8 +158,9 @@ export function BulkUpload({ kind, programs, groups }: { kind: "student" | "post
           </div>
           {ok.length > 0 && (
             <form action={createAction}>
+              <input type="hidden" name="kind" value={kind} />
               <input type="hidden" name="batch" value={preview.batch} />
-              <input type="hidden" name="rows" value={JSON.stringify(ok.map((r) => ({ fio: r.fio, group: r.group })))} />
+              <input type="hidden" name="rows" value={JSON.stringify(ok.map((r) => ({ fio: r.fio, group: r.group, position: r.position, degree: r.degree })))} />
               {created?.error && <p role="alert" className="mb-2 text-sm text-brand-red">{created.error}</p>}
               <Button type="submit" className="h-11 w-full" disabled={creating}>{creating ? "Создаём…" : `Создать ${ok.length} аккаунтов`}</Button>
             </form>
@@ -158,6 +178,71 @@ export function ResetButton({ id }: { id: string }) {
     <form action={action} onSubmit={(e) => { if (!confirm("Выдать новый одноразовый пароль? Старый перестанет работать.")) e.preventDefault(); }}>
       <input type="hidden" name="id" value={id} />
       <button type="submit" disabled={pending} className="h-11 rounded-sm border px-3 text-sm">{pending ? "…" : "Сбросить пароль"}</button>
+      {state?.error && <p className="text-xs text-brand-red">{state.error}</p>}
+    </form>
+  );
+}
+
+type EditPerson = {
+  id: string; fio: string; facultyId?: number | null; isHead?: boolean; managerId?: string | null;
+  position?: string | null; duties?: string | null; room?: string | null; hours?: string | null; phone?: string | null;
+  degree?: string | null; interests?: string | null; maxStudents?: number | null;
+};
+
+/**
+ * «Изменить анкету» — раскрывающаяся форма под строкой аккаунта.
+ * mode: dean — ФИО и факультет (проректор); staff — сотрудник деканата; self — своя карточка; supervisor — преподаватель; fio — только ФИО.
+ */
+export function EditAccount({ mode, person, faculties = [], managers = [], label = "Изменить анкету" }: { mode: "dean" | "staff" | "self" | "supervisor" | "fio"; person: EditPerson; faculties?: Opt[]; managers?: { id: string; label: string }[]; label?: string }) {
+  const [state, action, pending] = useActionState<EditState, FormData>(updateAccount, undefined);
+  return (
+    <details className="group mt-2 w-full">
+      <summary className="inline-flex h-11 cursor-pointer list-none items-center rounded-sm border px-3 text-sm">{label}</summary>
+      <form onSubmit={keepValues(action)} className="mt-3 space-y-3 rounded-lg border bg-muted/30 p-3">
+        <input type="hidden" name="id" value={person.id} />
+        {mode !== "self" && <Field label="ФИО" hint="Логин не меняется — человек входит по прежнему"><input name="fio" required defaultValue={person.fio} className={f} /></Field>}
+        {mode === "dean" && <Field label="Факультет"><select name="facultyId" required defaultValue={person.facultyId ?? ""} className={f}>{faculties.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select></Field>}
+        {mode === "staff" && !person.isHead && (
+          <>
+            <Field label="Должность"><input name="position" required list="positions-edit" defaultValue={person.position ?? ""} className={f} /><datalist id="positions-edit">{POSITIONS.map((p) => <option key={p} value={p} />)}</datalist></Field>
+            <Field label="Руководитель в структуре"><select name="managerId" defaultValue={person.managerId ?? ""} className={f}>{person.managerId && !managers.some((m) => m.id === person.managerId) && <option value={person.managerId}>— без изменений —</option>}{managers.filter((m) => m.id !== person.id).map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></Field>
+          </>
+        )}
+        {(mode === "staff" || mode === "self") && (
+          <>
+            <Field label="За что отвечает" hint="Это увидят студенты в «Мой деканат»"><input name="duties" maxLength={300} defaultValue={person.duties ?? ""} className={f} /></Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Кабинет"><input name="staffRoom" maxLength={60} defaultValue={person.room ?? ""} className={f} /></Field>
+              <Field label="Часы приёма"><input name="staffHours" maxLength={80} defaultValue={person.hours ?? ""} className={f} /></Field>
+            </div>
+            <Field label="Рабочий телефон"><input name="workPhone" maxLength={40} defaultValue={person.phone ?? ""} className={f} /></Field>
+          </>
+        )}
+        {mode === "supervisor" && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Должность"><input name="position" required defaultValue={person.position ?? "преподаватель"} className={f} /></Field>
+              <Field label="Учёная степень"><input name="degree" defaultValue={person.degree ?? ""} className={f} /></Field>
+            </div>
+            <Field label="Научные интересы" hint="По ним студенты ищут руководителя"><input name="interests" maxLength={300} defaultValue={person.interests ?? ""} className={f} /></Field>
+            <Field label="Сколько студентов может вести"><input name="maxStudents" type="number" min={0} max={15} defaultValue={person.maxStudents ?? 5} className={f} /></Field>
+          </>
+        )}
+        {state?.error && <p role="alert" className="text-sm text-brand-red">{state.error}</p>}
+        {state?.ok && <p role="status" className="text-sm font-semibold text-status-ok">{state.ok}</p>}
+        <Button type="submit" className="h-11 w-full" disabled={pending}>{pending ? "Сохраняем…" : "Сохранить"}</Button>
+      </form>
+    </details>
+  );
+}
+
+export function DeleteDeanButton({ id }: { id: string }) {
+  const [state, action, pending] = useActionState<EditState, FormData>(deleteDean, undefined);
+  if (state?.ok) return <p role="status" className="text-sm font-semibold text-status-ok">{state.ok}</p>;
+  return (
+    <form action={action} onSubmit={(e) => { if (!confirm("Удалить анкету декана? Вход по этому логину перестанет работать. Сотрудники деканата останутся и перейдут к новому декану.")) e.preventDefault(); }}>
+      <input type="hidden" name="id" value={id} />
+      <button type="submit" disabled={pending} className="h-11 rounded-sm border border-brand-red/40 px-3 text-sm text-brand-red">{pending ? "…" : "Удалить анкету"}</button>
       {state?.error && <p className="text-xs text-brand-red">{state.error}</p>}
     </form>
   );

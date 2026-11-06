@@ -104,7 +104,8 @@ export function accountScope(user: CurrentUser): Prisma.PersonWhereInput {
   const none = { id: "__none__" };
   switch (user.role) {
     case "RECTOR":
-      return { role: "DEAN_OFFICE", isHead: true }; // проректор — только деканы
+      // проректор — только деканы, которых назначил сам (SPEC §14, правка 06.11)
+      return { role: "DEAN_OFFICE", isHead: true, createdById: user.id };
     case "DEAN_OFFICE":
       if (user.staffFacultyId == null) return none;
       return { OR: [

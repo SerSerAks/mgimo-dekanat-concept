@@ -127,7 +127,7 @@ async function Campaign({ campaign: c, enrollment: e, requests, q }: {
                   </div>
                   <span className={`shrink-0 rounded-sm px-2 py-1 text-xs font-semibold text-white ${free ? "bg-status-ok" : "bg-status-new"}`}>{free ? `свободно ${free} из ${slots}` : "мест нет"}</span>
                 </div>
-                <p className="mt-2 text-sm"><span className="text-muted-foreground">Интересы:</span> {p.interests}</p>
+                {p.interests && <p className="mt-2 text-sm"><span className="text-muted-foreground">Интересы:</span> {p.interests}</p>}
                 {free > 0 && !late && <RequestSupervisor campaignId={c.id} supervisorId={s.id} name={`${s.lastName} ${s.firstName[0]}. ${s.middleName?.[0] ?? ""}.`} />}
               </li>
             );

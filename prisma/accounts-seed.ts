@@ -27,8 +27,9 @@ export async function seedAccounts(db: PrismaClient): Promise<[string, string, s
       head: { duties: "Общее руководство факультетом, приём по личным вопросам", room: "каб. 210", hours: "вт 15:00–17:00, по записи", phone: "+7 (000) 000-01-00" },
       staff: [
         { login: "mo_zam_study", fio: ["Лебедева", "Анна", "Сергеевна"], position: "Заместитель декана по учебной работе", duties: "Учебный процесс, сессия, пересдачи, индивидуальные графики", room: "каб. 212", hours: "пн–чт 11:00–16:00", phone: "+7 (000) 000-01-10", manager: "dean_mo" },
-        { login: "mo_spec_12", fio: ["Тихонова", "Дарья", "Игоревна"], position: "Специалист по учебной работе", duties: "1–2 курс: справки, расписание, зачётные книжки", room: "каб. 214", hours: "пн–пт 10:00–17:00", phone: "+7 (000) 000-01-14", manager: "mo_zam_study" },
-        { login: "mo_spec_34", fio: ["Ершов", "Максим", "Павлович"], position: "Специалист по учебной работе", duties: "3–4 курс: справки, практика, ВКР", room: "каб. 214", hours: "пн–пт 10:00–17:00", phone: "+7 (000) 000-01-15", manager: "mo_zam_study" },
+        { login: "mo_spec_12", fio: ["Тихонова", "Дарья", "Игоревна"], position: "Начальник 1–2 курсов", duties: "1–2 курс: справки, расписание, зачётные книжки", room: "каб. 214", hours: "пн–пт 10:00–17:00", phone: "+7 (000) 000-01-14", manager: "mo_zam_study" },
+        { login: "mo_spec_34", fio: ["Ершов", "Максим", "Павлович"], position: "Начальник 3–4 курсов", duties: "3–4 курс: справки, практика, ВКР", room: "каб. 214", hours: "пн–пт 10:00–17:00", phone: "+7 (000) 000-01-15", manager: "mo_zam_study" },
+        { login: "mo_mag", fio: ["Белова", "Ольга", "Викторовна"], position: "Руководитель магистерских программ", duties: "Магистратура: учебные планы, выбор руководителей, ВКР магистрантов", room: "каб. 218", hours: "пн, ср 16:00–19:00", phone: "+7 (000) 000-01-30", manager: "mo_zam_study" },
         { login: "mo_zam_students", fio: ["Миронов", "Илья", "Андреевич"], position: "Заместитель декана по работе со студентами", duties: "Стипендии, материальная помощь, общежитие, студенческие объединения", room: "каб. 216", hours: "ср, пт 12:00–16:00", phone: "+7 (000) 000-01-20", manager: "dean_mo" },
       ],
     },
@@ -47,6 +48,8 @@ export async function seedAccounts(db: PrismaClient): Promise<[string, string, s
     const ids: Record<string, string> = { [headLogin]: head.id };
     for (const st of t.staff) {
       let p = await db.person.findUnique({ where: { login: st.login } });
+      // демо-структура: должности сидовых сотрудников приводятся к актуальным (повторный запуск безопасен)
+      if (p && p.position !== st.position) p = await db.person.update({ where: { id: p.id }, data: { position: st.position, staffDuties: st.duties } });
       if (!p) p = await db.person.create({ data: {
         login: st.login, role: "DEAN_OFFICE", passwordHash: await hashPassword(randomBytes(12).toString("base64url")),
         lastName: st.fio[0], firstName: st.fio[1], middleName: st.fio[2], staffFacultyId: head.staffFacultyId, position: st.position,

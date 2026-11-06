@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import type { Level } from "@prisma/client";
+import type { Level, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { homeFor, requireUser, type CurrentUser } from "@/lib/auth";
@@ -13,9 +13,10 @@ import { readPeopleFile, MAX_ROWS } from "@/lib/bulk-file";
 
 export type Cred = { fio: string; login: string; password: string; note: string };
 export type AccState = { error?: string; creds?: Cred[] } | undefined;
-export type PreviewRow = { line: number; fio: string; login: string; group: string | null; error: string | null };
+export type PreviewRow = { line: number; fio: string; login: string; group: string | null; position: string | null; degree: string | null; error: string | null };
 export type PreviewState = { error?: string; rows?: PreviewRow[]; batch?: string } | undefined;
 
+type BulkKind = "student" | "postgrad" | "supervisor";
 const fioText = (f: Fio) => `${f.lastName} ${f.firstName}${f.middleName ? " " + f.middleName : ""}`;
 const ACADEMIC_START = 2026; // 2026/27 учебный год
 
@@ -44,7 +45,13 @@ const PostgradBatch = z.object({
 });
 
 /** Проверка параметров партии в области доступа создателя. */
-async function checkBatch(user: CurrentUser, kind: "student" | "postgrad", raw: Record<string, unknown>) {
+async function checkBatch(user: CurrentUser, kind: BulkKind, raw: Record<string, unknown>) {
+  if (kind === "supervisor") {
+    if (user.role !== "DEPARTMENT" || user.staffDepartmentId == null) return { error: "Преподавателей создаёт кафедра" } as const;
+    const b = z.object({ maxStudents: z.coerce.number().int().min(0).max(15) }).safeParse(raw);
+    if (!b.success) return { error: "Укажите, сколько студентов может вести преподаватель (0–15)" } as const;
+    return { supervisor: b.data } as const;
+  }
   if (kind === "student") {
     if (user.role !== "DEAN_OFFICE" || user.staffFacultyId == null) return { error: "Студентов создаёт деканат" } as const;
     const b = StudentBatch.safeParse(raw);
@@ -58,6 +65,18 @@ async function checkBatch(user: CurrentUser, kind: "student" | "postgrad", raw: 
   if (!b.success) return { error: "Проверьте год обучения и специальность" } as const;
   if (b.data.programId !== "" && !(await db.program.findFirst({ where: { id: b.data.programId, level: "POSTGRAD" } }))) return { error: "Неизвестная специальность" } as const;
   return { postgrad: b.data } as const;
+}
+
+type TeacherCard = { position: string | null; degree: string | null; interests?: string; maxStudents: number };
+
+/** Карточка преподавателя кафедры: аккаунт SUPERVISOR + профиль научного руководителя. */
+async function createTeacher(user: CurrentUser, fio: Fio, card: TeacherCard, reserved: Set<string>) {
+  const r = await newPerson({ fio, role: "SUPERVISOR", createdById: user.id, extra: { staffDepartmentId: user.staffDepartmentId } }, reserved);
+  await db.supervisorProfile.create({ data: {
+    personId: r.person.id, position: card.position || "преподаватель", degree: card.degree || null, interests: card.interests ?? "",
+    maxStudents: card.maxStudents, levels: ["BACHELOR", "MASTER", "POSTGRAD"],
+  } });
+  return r;
 }
 
 async function createLearner(user: CurrentUser, kind: "student" | "postgrad", fio: Fio, batch: Awaited<ReturnType<typeof checkBatch>>, groupId: number | null, reserved: Set<string>) {
@@ -105,8 +124,12 @@ export async function createAccount(_: AccState, form: FormData): Promise<AccSta
     const facultyId = Number(form.get("facultyId"));
     const fac = await db.faculty.findUnique({ where: { id: facultyId } });
     if (!fac) return { error: "Выберите факультет" };
-    if (await db.person.findFirst({ where: { role: "DEAN_OFFICE", isHead: true, staffFacultyId: fac.id } })) return { error: "У этого факультета уже есть декан" };
-    const r = await newPerson({ fio, role: "DEAN_OFFICE", createdById: user.id, extra: { staffFacultyId: fac.id, isHead: true, position: "Декан факультета", ...cardData } }, reserved);
+    const busy = await db.person.findFirst({ where: { role: "DEAN_OFFICE", isHead: true, staffFacultyId: fac.id } });
+    if (busy) return { error: `У факультета уже есть декан — ${busy.lastName} ${busy.firstName}${busy.middleName ? " " + busy.middleName : ""}. Двух деканов быть не может: сначала измените или удалите анкету текущего декана в списке ниже.` };
+    // проректор вводит только ФИО и факультет; карточку для студентов декан заполнит сам
+    const r = await newPerson({ fio, role: "DEAN_OFFICE", createdById: user.id, extra: { staffFacultyId: fac.id, isHead: true, position: "Декан факультета" } }, reserved);
+    // сотрудники, оставшиеся без руководителя (после удаления прежнего декана), переходят к новому
+    await db.person.updateMany({ where: { role: "DEAN_OFFICE", staffFacultyId: fac.id, isHead: false, managerId: null }, data: { managerId: r.person.id } });
     revalidatePath("/staff/accounts");
     return { creds: [{ fio: fioText(fio), login: r.login, password: r.password, note: `Декан: ${fac.name}` }] };
   }
@@ -132,8 +155,7 @@ export async function createAccount(_: AccState, form: FormData): Promise<AccSta
   if (kind === "supervisor" && user.role === "DEPARTMENT" && user.staffDepartmentId != null) {
     const p = z.object({ position: z.string().trim().min(3).max(60), degree: z.string().trim().max(60), interests: z.string().trim().min(5).max(300), maxStudents: z.coerce.number().int().min(1).max(15) }).safeParse(Object.fromEntries(form));
     if (!p.success) return { error: "Заполните должность и научные интересы" };
-    const r = await newPerson({ fio, role: "SUPERVISOR", createdById: user.id, extra: { staffDepartmentId: user.staffDepartmentId } }, reserved);
-    await db.supervisorProfile.create({ data: { personId: r.person.id, position: p.data.position, degree: p.data.degree || null, interests: p.data.interests, maxStudents: p.data.maxStudents, levels: ["BACHELOR", "MASTER", "POSTGRAD"] } });
+    const r = await createTeacher(user, fio, { position: p.data.position, degree: p.data.degree || null, interests: p.data.interests, maxStudents: p.data.maxStudents }, reserved);
     revalidatePath("/staff/accounts");
     return { creds: [{ fio: fioText(fio), login: r.login, password: r.password, note: "Преподаватель кафедры (научный руководитель)" }] };
   }
@@ -149,9 +171,14 @@ export async function createAccount(_: AccState, form: FormData): Promise<AccSta
 
 // ---------- массовая загрузка: шаг 1 — проверка ----------
 
+function bulkKind(user: CurrentUser, form: FormData): BulkKind {
+  if (user.role === "DEAN_OFFICE") return "student";
+  return form.get("kind") === "supervisor" ? "supervisor" : "postgrad";
+}
+
 export async function previewBulk(_: PreviewState, form: FormData): Promise<PreviewState> {
   const user = await requireUser(["DEAN_OFFICE", "DEPARTMENT"]);
-  const kind = user.role === "DEAN_OFFICE" ? "student" : "postgrad";
+  const kind = bulkKind(user, form);
   const params = Object.fromEntries([...form.entries()].filter(([k]) => k !== "file"));
   const batch = await checkBatch(user, kind, params);
   if ("error" in batch) return { error: batch.error };
@@ -168,9 +195,9 @@ export async function previewBulk(_: PreviewState, form: FormData): Promise<Prev
     let error: string | null = null, login = "";
     if (!f) error = "ФИО не распознано — нужно «Фамилия Имя Отчество»";
     else if (seen.has(fioText(f).toLowerCase() + (r.group ?? ""))) error = "Повтор в файле";
-    if (!error && r.group && !groups.some((g) => g.name.toLowerCase() === r.group!.toLowerCase())) error = `Группа «${r.group}» не найдена на факультете`;
+    if (!error && kind === "student" && r.group && !groups.some((g) => g.name.toLowerCase() === r.group!.toLowerCase())) error = `Группа «${r.group}» не найдена на факультете`;
     if (f) { seen.add(fioText(f).toLowerCase() + (r.group ?? "")); if (!error) { login = await uniqueLogin(db, baseLogin(f), reserved); reserved.add(login); } }
-    rows.push({ line: r.line, fio: f ? fioText(f) : r.fio || "(пусто)", login, group: r.group, error });
+    rows.push({ line: r.line, fio: f ? fioText(f) : r.fio || "(пусто)", login, group: kind === "student" ? r.group : null, position: r.position, degree: r.degree, error });
   }
   return { rows, batch: JSON.stringify(params) };
 }
@@ -179,11 +206,12 @@ export async function previewBulk(_: PreviewState, form: FormData): Promise<Prev
 
 export async function createBulk(_: AccState, form: FormData): Promise<AccState> {
   const user = await requireUser(["DEAN_OFFICE", "DEPARTMENT"]);
-  const kind = user.role === "DEAN_OFFICE" ? "student" : "postgrad";
-  let params: Record<string, unknown>, rows: { fio: string; group: string | null }[];
+  const kind = bulkKind(user, form);
+  let params: Record<string, unknown>, rows: { fio: string; group: string | null; position: string | null; degree: string | null }[];
   try {
     params = JSON.parse(String(form.get("batch") ?? "{}"));
-    rows = z.array(z.object({ fio: z.string().max(200), group: z.string().max(40).nullable() })).max(MAX_ROWS).parse(JSON.parse(String(form.get("rows") ?? "[]")));
+    const opt = z.string().trim().max(60).nullable().default(null);
+    rows = z.array(z.object({ fio: z.string().max(200), group: z.string().max(40).nullable(), position: opt, degree: opt })).max(MAX_ROWS).parse(JSON.parse(String(form.get("rows") ?? "[]")));
   } catch { return { error: "Данные формы повреждены — загрузите файл заново" }; }
   // всё проверяется заново на сервере: клиенту не доверяем
   const batch = await checkBatch(user, kind, params);
@@ -193,9 +221,15 @@ export async function createBulk(_: AccState, form: FormData): Promise<AccState>
   for (const r of rows) {
     const f = parseFio(r.fio);
     if (!f) continue;
+    if (kind === "supervisor" && "supervisor" in batch && batch.supervisor) {
+      const t = await createTeacher(user, f, { position: r.position, degree: r.degree, maxStudents: batch.supervisor.maxStudents }, reserved);
+      creds.push({ fio: fioText(f), login: t.login, password: t.password, note: r.position || "преподаватель" });
+      continue;
+    }
+    if (kind === "supervisor") continue;
     const g = r.group ? groups.find((x) => x.name.toLowerCase() === r.group!.toLowerCase()) : undefined;
     if (r.group && !g) continue;
-    const c = await createLearner(user, kind, f, batch, g?.id ?? null, reserved);
+    const c = await createLearner(user, kind as "student" | "postgrad", f, batch, g?.id ?? null, reserved);
     creds.push({ fio: fioText(f), login: c.login, password: c.password, note: g?.name ?? "" });
   }
   revalidatePath("/staff/accounts");
@@ -215,6 +249,117 @@ export async function resetPassword(_: AccState, form: FormData): Promise<AccSta
     db.session.deleteMany({ where: { personId: id } }), // старые входы завершаются
   ]);
   return { creds: [{ fio: `${p.lastName} ${p.firstName}${p.middleName ? " " + p.middleName : ""}`, login: p.login, password, note: "Пароль сброшен" }] };
+}
+
+// ---------- правка анкеты ----------
+
+export type EditState = { error?: string; ok?: string } | undefined;
+const t = (max: number) => z.string().trim().max(max).optional().transform((v) => v || null);
+
+/**
+ * Правка анкеты подчинённого аккаунта (или своей карточки сотрудника деканата).
+ * Кого можно править — та же область accountScope, что и для сброса пароля. Логин не меняется.
+ */
+export async function updateAccount(_: EditState, form: FormData): Promise<EditState> {
+  const user = await requireUser(["RECTOR", "DEAN_OFFICE", "DEPARTMENT"]);
+  const id = String(form.get("id") ?? "");
+  const self = id === user.id && user.role === "DEAN_OFFICE";
+  const p = self ? await db.person.findUnique({ where: { id } }) : await db.person.findFirst({ where: { AND: [{ id }, accountScope(user)] } });
+  if (!p) return { error: "Аккаунт не найден" };
+
+  let fio: Fio | null = null;
+  if (!self) {
+    fio = parseFio(String(form.get("fio") ?? ""));
+    if (!fio) return { error: "Введите ФИО полностью: Фамилия Имя Отчество" };
+  }
+
+  // декан — проректор меняет ФИО и факультет
+  if (user.role === "RECTOR") {
+    const facultyId = Number(form.get("facultyId"));
+    const fac = await db.faculty.findUnique({ where: { id: facultyId } });
+    if (!fac) return { error: "Выберите факультет" };
+    if (fac.id !== p.staffFacultyId) {
+      const busy = await db.person.findFirst({ where: { role: "DEAN_OFFICE", isHead: true, staffFacultyId: fac.id, id: { not: id } } });
+      if (busy) return { error: `У этого факультета уже есть декан — ${busy.lastName} ${busy.firstName}. Сначала измените или удалите анкету текущего декана.` };
+    }
+    await db.$transaction([
+      // подчинённые остаются на прежнем факультете и ждут нового декана
+      ...(fac.id !== p.staffFacultyId ? [db.person.updateMany({ where: { managerId: id }, data: { managerId: null } })] : []),
+      db.person.update({ where: { id }, data: { ...fio!, staffFacultyId: fac.id } }),
+    ]);
+    revalidatePath("/staff/accounts");
+    return { ok: "Анкета сохранена" };
+  }
+
+  // сотрудник деканата: должность, место в структуре, карточка для студентов
+  if (p.role === "DEAN_OFFICE") {
+    const c = z.object({ position: t(80), duties: t(300), staffRoom: t(60), staffHours: t(80), workPhone: t(40) }).parse(Object.fromEntries(form));
+    const data: Prisma.PersonUpdateInput = { staffDuties: c.duties, staffRoom: c.staffRoom, staffHours: c.staffHours, workPhone: c.workPhone };
+    if (!self) {
+      Object.assign(data, fio);
+      if (!p.isHead) {
+        if (!c.position || c.position.length < 3) return { error: "Укажите должность" };
+        data.position = c.position;
+        const managerId = String(form.get("managerId") || "");
+        if (managerId && managerId !== p.managerId) {
+          if (managerId === id) return { error: "Сотрудник не может подчиняться сам себе" };
+          const ok = managerId === user.id || (await db.person.findFirst({ where: { AND: [{ id: managerId, role: "DEAN_OFFICE" }, accountScope(user)] } }));
+          if (!ok) return { error: "Такого руководителя выбрать нельзя" };
+          // нельзя поставить человека под его же подчинённого — получится петля
+          for (let cur: string | null = managerId; cur; cur = (await db.person.findUnique({ where: { id: cur }, select: { managerId: true } }))?.managerId ?? null) {
+            if (cur === id) return { error: "Нельзя подчинить сотрудника его же подчинённому" };
+          }
+          data.manager = { connect: { id: managerId } };
+        }
+      }
+    }
+    await db.person.update({ where: { id }, data });
+    revalidatePath("/staff/accounts"); revalidatePath("/dekanat");
+    return { ok: "Анкета сохранена" };
+  }
+
+  // преподаватель кафедры: ФИО и профиль научного руководителя
+  if (p.role === "SUPERVISOR") {
+    const c = z.object({ position: z.string().trim().min(3).max(60), degree: t(60), interests: z.string().trim().max(300).default(""), maxStudents: z.coerce.number().int().min(0).max(15) }).safeParse(Object.fromEntries(form));
+    if (!c.success) return { error: "Проверьте должность и число студентов (0–15)" };
+    await db.$transaction([
+      db.person.update({ where: { id }, data: fio! }),
+      db.supervisorProfile.upsert({ where: { personId: id }, update: c.data, create: { personId: id, ...c.data, levels: ["BACHELOR", "MASTER", "POSTGRAD"] } }),
+    ]);
+    revalidatePath("/staff/accounts");
+    return { ok: "Анкета сохранена" };
+  }
+
+  // остальные (кафедра, студенты) — только ФИО
+  await db.person.update({ where: { id }, data: fio! });
+  revalidatePath("/staff/accounts");
+  return { ok: "Анкета сохранена" };
+}
+
+// ---------- удаление анкеты декана (проректор) ----------
+
+export async function deleteDean(_: EditState, form: FormData): Promise<EditState> {
+  const user = await requireUser(["RECTOR"]);
+  const id = String(form.get("id") ?? "");
+  const p = await db.person.findFirst({ where: { AND: [{ id }, accountScope(user)] } });
+  if (!p) return { error: "Аккаунт не найден" };
+  // подчинённые и созданные аккаунты не удаляются: подчинённые переходят к следующему декану факультета
+  const unlink = [
+    db.person.updateMany({ where: { managerId: id }, data: { managerId: null } }),
+    db.person.updateMany({ where: { createdById: id }, data: { createdById: null } }),
+    db.session.deleteMany({ where: { personId: id } }),
+  ];
+  try {
+    await db.$transaction([...unlink, db.person.delete({ where: { id } })]);
+  } catch {
+    // у декана есть история (объявления, решения по заявкам) — её не стираем, аккаунт закрываем:
+    // снимаем с должности, отвязываем от факультета, пароль больше не подходит
+    await db.$transaction([...unlink, db.person.update({ where: { id }, data: {
+      isHead: false, staffFacultyId: null, position: "Бывший декан", passwordHash: await hashPassword(generatePassword(32)), mustChangePassword: false,
+    } })]);
+  }
+  revalidatePath("/staff/accounts");
+  return { ok: "Анкета удалена — можно назначить нового декана" };
 }
 
 // ---------- смена своего пароля ----------

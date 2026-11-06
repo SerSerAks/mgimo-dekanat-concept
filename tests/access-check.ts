@@ -94,11 +94,16 @@ async function userOf(login: string) {
   // дерево деканата (SPEC §15)
   const heads = await db.person.findMany({ where: accountScope(rector), select: { isHead: true } });
   check("проректор управляет только деканами (не их подчинёнными)", heads.length > 0 && heads.every((h) => h.isHead), `${heads.length} шт.`);
+  const deanMoId = (await db.person.findUniqueOrThrow({ where: { login: "dean_mo" } })).id;
+  check("проректор не управляет деканом, которого назначил не он", !(await db.person.findFirst({ where: { AND: [{ id: deanMoId }, accountScope({ ...(rector as object), id: "другой-проректор" } as never)] } })));
+  check("двух деканов на одном факультете нет", (await db.person.groupBy({ by: ["staffFacultyId"], where: { role: "DEAN_OFFICE", isHead: true }, _count: true })).every((g) => g._count === 1));
   const deanStaff = (await db.person.findMany({ where: { AND: [accountScope(deanMo), { role: "DEAN_OFFICE" }] }, select: { login: true } })).map((p) => p.login);
   check("декан МО управляет всем своим деканатом, но не деканатом МП", deanStaff.includes("mo_zam_study") && deanStaff.includes("mo_spec_12") && !deanStaff.includes("mp_spec") && !deanStaff.includes("dean_mo"), deanStaff.join(","));
   const zam = await userOf("mo_zam_study");
   const zamStaff = (await db.person.findMany({ where: { AND: [accountScope(zam), { role: "DEAN_OFFICE" }] }, select: { login: true } })).map((p) => p.login).sort();
-  check("заместитель управляет только прямыми подчинёнными", JSON.stringify(zamStaff) === JSON.stringify(["mo_spec_12", "mo_spec_34"]), zamStaff.join(","));
+  check("заместитель управляет только прямыми подчинёнными", JSON.stringify(zamStaff) === JSON.stringify(["mo_mag", "mo_spec_12", "mo_spec_34"]), zamStaff.join(","));
+  const spec = await userOf("mo_spec_12");
+  check("специалист без подчинённых не управляет коллегами и начальником", (await db.person.count({ where: { AND: [accountScope(spec), { role: "DEAN_OFFICE" }] } })) === 0);
   check("студент не управляет аккаунтами", (await db.person.count({ where: accountScope(s1) })) === 0);
 
   console.log(failed ? `\nПровалено проверок: ${failed}` : "\nВсе проверки доступа пройдены");
