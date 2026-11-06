@@ -21,7 +21,7 @@ export default async function SupervisionInbox() {
       include: { campaign: true, enrollment: { include: { person: { select: { lastName: true, firstName: true, middleName: true } }, group: true, program: true, grades: { select: { mark: true, isDebt: true } } } } },
     }),
     db.supervisionCampaign.findMany({
-      where: { facultyId: me.staffDepartment?.facultyId ?? -1, academicYear: ACADEMIC_YEAR, level: { in: levels } },
+      where: { facultyId: me.staffDepartment?.facultyId ?? -1, OR: [{ departmentId: null }, { departmentId: me.staffDepartmentId ?? -1 }], academicYear: ACADEMIC_YEAR, level: { in: levels } },
       orderBy: [{ openBy: "asc" }],
       include: { intakes: { where: { supervisorId: user.id } }, requests: { where: { supervisorId: user.id, status: "ACCEPTED" }, select: { id: true } } },
     }),

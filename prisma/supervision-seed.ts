@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { hashPassword } from "../src/lib/password";
 import { toMark } from "../src/config/grading";
-import { ACADEMIC_YEAR, loadYearPlan } from "../src/lib/campaigns";
+import { ACADEMIC_YEAR, announceCampaign, loadYearPlan } from "../src/lib/campaigns";
 
 type Cred = [login: string, password: string, who: string];
 
@@ -119,6 +119,26 @@ export async function seedSupervision(db: PrismaClient): Promise<Cred[]> {
   for (const [sid, cid, slots] of [[sup1.id, cw3.id, 4], [sup2.id, cw3.id, 2], [sup1.id, th4.id, 2], [sup3.id, th4.id, 1]] as const) {
     await db.supervisorIntake.upsert({ where: { supervisorId_campaignId: { supervisorId: sid, campaignId: cid } }, create: { supervisorId: sid, campaignId: cid, slots }, update: {} });
   }
+  // НИР загружают кафедры (правка 06.11): прежние НИР деканата без заявок убираем, с заявками — передаём кафедре факультета
+  for (const old of await db.supervisionCampaign.findMany({ where: { workType: "NIR", departmentId: null }, include: { _count: { select: { requests: true } } } })) {
+    if (old._count.requests === 0) {
+      await db.supervisorIntake.deleteMany({ where: { campaignId: old.id } });
+      await db.supervisionCampaign.delete({ where: { id: old.id } });
+    } else {
+      const dep = await db.department.findFirst({ where: { facultyId: old.facultyId, staff: { some: { role: "SUPERVISOR" } } } });
+      if (dep) await db.supervisionCampaign.update({ where: { id: old.id }, data: { departmentId: dep.id } });
+    }
+  }
+  // демо: кафедра государственного управления уже загрузила НИР магистрантам 1 курса
+  const govDep = await db.department.findFirst({ where: { name: "Кафедра государственного управления" } });
+  if (govDep) {
+    const nir = { facultyId: govDep.facultyId, departmentId: govDep.id, programId: null, level: "MASTER" as const, course: 1, workType: "NIR" as const, academicYear: ACADEMIC_YEAR };
+    if (!(await db.supervisionCampaign.findFirst({ where: nir }))) {
+      const c = await db.supervisionCampaign.create({ data: { ...nir, openBy: new Date("2026-11-16T00:00:00Z"), chooseBy: new Date("2026-11-30T00:00:00Z") } });
+      await announceCampaign(db, c);
+    }
+  }
+
   // заявки без кампании (созданные до §13) — привязываем к кампании по курсу и виду работы
   const legacy = await db.supervisorRequest.findMany({ where: { campaignId: null }, include: { enrollment: true } });
   for (const r of legacy) {

@@ -9,7 +9,7 @@ export const STAFF_NAV: Record<string, NavItem[]> = {
     { href: "/staff/requests", label: "Заявки", icon: "inbox" },
     { href: "/staff/people", label: "Студенты", icon: "users" },
     { href: "/staff/accounts", label: "Аккаунты", icon: "check" },
-    { href: "/staff/plan", label: "План и НИР", icon: "book" },
+    { href: "/staff/plan", label: "Учебный план", icon: "book" },
     { href: "/staff/announcements", label: "Объявления", icon: "megaphone" },
     { href: "/staff/practice", label: "Практика", icon: "calendar" },
   ],
@@ -20,6 +20,7 @@ export const STAFF_NAV: Record<string, NavItem[]> = {
   ],
   DEPARTMENT: [
     { href: "/staff/graduates", label: "Выпускники", icon: "users" },
+    { href: "/staff/nir", label: "НИР", icon: "book" },
     { href: "/staff/accounts", label: "Аккаунты", icon: "check" },
   ],
 };

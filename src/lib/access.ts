@@ -89,9 +89,10 @@ export function canChooseSupervisor(e: { level: "BACHELOR" | "MASTER" | "POSTGRA
   return e.level !== "BACHELOR" || e.course >= 3;
 }
 
-/** Кампании выбора руководителя: деканат — своего факультета. Руководителю и студенту кампании подбираются отдельно (по факультету и уровню). */
+/** Кампании выбора руководителя: деканат — своего факультета (видит и НИР кафедр), кафедра — свои НИР. Руководителю и студенту кампании подбираются отдельно (по факультету и уровню). */
 export function campaignScope(user: CurrentUser): Prisma.SupervisionCampaignWhereInput {
   if (user.role === "DEAN_OFFICE" && user.staffFacultyId != null) return { facultyId: user.staffFacultyId };
+  if (user.role === "DEPARTMENT" && user.staffDepartmentId != null) return { departmentId: user.staffDepartmentId };
   return { id: -1 };
 }
 

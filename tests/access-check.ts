@@ -80,6 +80,16 @@ async function userOf(login: string) {
   check("student3 (3 курс) попадает в кампанию курсовых 3 курса, а не в ВКР", s3camps.length > 0 && s3camps.every((c) => c.course === 3 && c.workType === "COURSEWORK"));
   check("student1 (1 курс) не попадает ни в одну кампанию", (await campaignsFor(db, s1e)).length === 0);
 
+  // НИР загружают кафедры: кафедра видит только свои НИР, приём — только у руководителей этой кафедры
+  const { campaignSupervisors } = await import("../src/lib/campaigns");
+  const nir = await db.supervisionCampaign.findFirst({ where: { workType: "NIR" }, include: { department: true } });
+  check("НИР деканата нет — все НИР загружены кафедрами", (await db.supervisionCampaign.count({ where: { workType: "NIR", departmentId: null } })) === 0);
+  if (nir) {
+    check("чужая кафедра не видит НИР другой кафедры", !(await db.supervisionCampaign.findFirst({ where: { id: nir.id, ...campaignScope(dept) } })) || (dept as { staffDepartmentId: number | null }).staffDepartmentId === nir.departmentId);
+    const sups = await db.person.findMany({ where: { id: { in: (await campaignSupervisors(db, nir)).map((x) => x.id) } }, select: { staffDepartmentId: true } });
+    check("в НИР кафедры приём открывают только её преподаватели", sups.every((x) => x.staffDepartmentId === nir.departmentId), `${sups.length} чел.`);
+  }
+
   // создание и управление аккаунтами (SPEC §14)
   const loginsIn = async (u: never) => (await db.person.findMany({ where: accountScope(u), select: { login: true, role: true } }));
   const rector = await userOf("rector1");

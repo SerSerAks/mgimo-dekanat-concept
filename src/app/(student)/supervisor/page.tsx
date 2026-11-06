@@ -43,14 +43,14 @@ export default async function SupervisorPage({ searchParams }: { searchParams: P
       )}
 
       {camps.length === 0 ? (
-        !e.supervisor && <p className="rounded-lg border p-4 text-sm">В этом учебном году на вашем курсе выбирать руководителя не нужно. Когда деканат загрузит план с курсовой или ВКР, здесь появится выбор и придёт уведомление.</p>
+        !e.supervisor && <p className="rounded-lg border p-4 text-sm">В этом учебном году на вашем курсе выбирать руководителя не нужно. Когда деканат загрузит план с курсовой или ВКР, а кафедра — НИР, здесь появится выбор и придёт уведомление.</p>
       ) : (
         <>
           {camps.length > 1 && (
             <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 text-sm" aria-label="Вид работы">
               {camps.map((c) => (
                 <Link key={c.id} href={`/supervisor?c=${c.id}`} aria-current={c.id === active.id ? "page" : undefined}
-                  className={`shrink-0 rounded-sm px-3 py-2.5 ${c.id === active.id ? "bg-navy font-semibold text-white" : "bg-muted"}`}>{workLabel(c.workType, c.level)}</Link>
+                  className={`shrink-0 rounded-sm px-3 py-2.5 ${c.id === active.id ? "bg-navy font-semibold text-white" : "bg-muted"}`}>{c.workType === "NIR" ? `НИР${c.department ? ` · ${c.department.name.replace(/^Кафедра\s+/i, "")}` : ""}` : workLabel(c.workType, c.level)}</Link>
               ))}
             </nav>
           )}
@@ -75,6 +75,7 @@ async function Campaign({ campaign: c, enrollment: e, requests, q }: {
   const header = (
     <div className="rounded-lg bg-secondary p-4">
       <b className="text-navy">{workLabel(c.workType, c.level)} · {c.academicYear}</b>
+      {c.department && <p className="text-xs font-semibold text-brand-blue">Проводит {c.department.name.toLowerCase()} — руководители только этой кафедры</p>}
       <p className="text-sm">Выбрать руководителя до <b className={late ? "text-brand-red" : ""}>{fmt(c.chooseBy)}</b>{late && " — срок прошёл, напишите в деканат"} · руководители открывают приём до {fmt(c.openBy)}</p>
     </div>
   );

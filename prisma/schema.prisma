@@ -95,11 +95,12 @@ model Faculty {
 }
 
 model Department {
-  id            Int            @id @default(autoincrement())
+  id            Int                   @id @default(autoincrement())
   name          String
   facultyId     Int
-  faculty       Faculty        @relation(fields: [facultyId], references: [id])
-  staff         Person[]       @relation("StaffDepartment")
+  faculty       Faculty               @relation(fields: [facultyId], references: [id])
+  staff         Person[]              @relation("StaffDepartment")
+  campaigns     SupervisionCampaign[]
   teachers      Teacher[]
   theses        Thesis[]
   topics        ThesisTopic[]
@@ -613,6 +614,9 @@ model SupervisionCampaign {
   faculty      Faculty             @relation(fields: [facultyId], references: [id])
   programId    Int?
   program      Program?            @relation(fields: [programId], references: [id])
+  // НИР загружает кафедра (правка 06.11): приём только у руководителей этой кафедры. null — кампания деканата
+  departmentId Int?
+  department   Department?         @relation(fields: [departmentId], references: [id])
   level        Level
   course       Int
   workType     WorkType
@@ -623,7 +627,7 @@ model SupervisionCampaign {
   intakes      SupervisorIntake[]
   requests     SupervisorRequest[]
 
-  @@unique([facultyId, programId, level, course, workType, academicYear])
+  @@unique([facultyId, departmentId, programId, level, course, workType, academicYear])
 }
 
 model SupervisorIntake {

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireStudent, requireUser } from "@/lib/auth";
-import { ACADEMIC_YEAR, campaignsFor, loadYearPlan, workLabel } from "@/lib/campaigns";
+import { ACADEMIC_YEAR, announceCampaign, campaignsFor, loadYearPlan, workLabel } from "@/lib/campaigns";
 
 export type SupState = { error?: string; ok?: boolean; info?: string } | undefined;
 
@@ -54,7 +54,8 @@ export async function withdrawSupervisorRequest(form: FormData) {
 
 async function ownCampaign(user: { id: string }, campaignId: number) {
   const me = await db.person.findUniqueOrThrow({ where: { id: user.id }, include: { staffDepartment: true, supervisorProfile: true } });
-  const c = await db.supervisionCampaign.findFirst({ where: { id: campaignId, facultyId: me.staffDepartment?.facultyId ?? -1 } });
+  // кампании факультета; НИР кафедры — только её руководителям
+  const c = await db.supervisionCampaign.findFirst({ where: { id: campaignId, facultyId: me.staffDepartment?.facultyId ?? -1, OR: [{ departmentId: null }, { departmentId: me.staffDepartmentId ?? -1 }] } });
   if (!c || !me.supervisorProfile?.levels.includes(c.level)) return null;
   return c;
 }
@@ -132,12 +133,55 @@ export async function loadPlan(prev: SupState): Promise<SupState> {
 }
 
 export async function updateCampaignDates(_: SupState, form: FormData): Promise<SupState> {
-  const user = await requireUser(["DEAN_OFFICE"]);
+  const user = await requireUser(["DEAN_OFFICE", "DEPARTMENT"]);
   const p = z.object({ id: z.coerce.number().int(), openBy: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), chooseBy: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).safeParse(Object.fromEntries(form));
   if (!p.success) return { error: "Проверьте даты" };
   if (p.data.chooseBy < p.data.openBy) return { error: "Срок выбора не может быть раньше открытия приёма" };
-  const n = await db.supervisionCampaign.updateMany({ where: { id: p.data.id, facultyId: user.staffFacultyId ?? -1 }, data: { openBy: new Date(p.data.openBy + "T00:00:00Z"), chooseBy: new Date(p.data.chooseBy + "T00:00:00Z") } });
+  // деканат правит свои кампании (без кафедры), кафедра — свои НИР
+  const own = user.role === "DEPARTMENT" ? { departmentId: user.staffDepartmentId ?? -1 } : { facultyId: user.staffFacultyId ?? -1, departmentId: null };
+  const n = await db.supervisionCampaign.updateMany({ where: { id: p.data.id, ...own }, data: { openBy: new Date(p.data.openBy + "T00:00:00Z"), chooseBy: new Date(p.data.chooseBy + "T00:00:00Z") } });
   if (!n.count) return { error: "Кампания не найдена" };
-  revalidatePath("/staff/plan");
+  revalidatePath("/staff/plan"); revalidatePath("/staff/nir");
   return { ok: true, info: "Сроки сохранены" };
+}
+
+// ---------- кафедра: НИР ----------
+
+const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Укажите даты");
+
+/** Кафедра загружает НИР: кому (уровень, курс, направление) и сроки. Руководители — только этой кафедры. */
+export async function createNirCampaign(_: SupState, form: FormData): Promise<SupState> {
+  const user = await requireUser(["DEPARTMENT"]);
+  const dep = await db.department.findUnique({ where: { id: user.staffDepartmentId ?? -1 } });
+  if (!dep) return { error: "Нет привязки к кафедре" };
+  const p = z.object({
+    level: z.enum(["BACHELOR", "MASTER", "POSTGRAD"]),
+    course: z.coerce.number().int().min(1).max(6),
+    programId: z.union([z.literal(""), z.coerce.number().int()]),
+    openBy: day, chooseBy: day,
+  }).safeParse(Object.fromEntries(form));
+  if (!p.success) return { error: p.error.issues[0].message };
+  const d = p.data;
+  if (d.chooseBy < d.openBy) return { error: "Срок выбора не может быть раньше открытия приёма" };
+  if (d.course > (d.level === "BACHELOR" ? 4 : d.level === "MASTER" ? 2 : 4)) return { error: "Такого курса на этом уровне нет" };
+  if (d.programId !== "") {
+    const prog = await db.program.findFirst({ where: { id: d.programId, level: d.level, ...(d.level === "POSTGRAD" ? {} : { facultyId: dep.facultyId }) } });
+    if (!prog) return { error: "Направление не подходит к уровню или факультету" };
+  }
+  const data = { facultyId: dep.facultyId, departmentId: dep.id, programId: d.programId === "" ? null : d.programId, level: d.level, course: d.course, workType: "NIR" as const, academicYear: ACADEMIC_YEAR };
+  if (await db.supervisionCampaign.findFirst({ where: data })) return { error: "НИР для этого курса и направления уже загружена — поменяйте сроки в списке ниже" };
+  const c = await db.supervisionCampaign.create({ data: { ...data, openBy: new Date(d.openBy + "T00:00:00Z"), chooseBy: new Date(d.chooseBy + "T00:00:00Z") } });
+  const sent = await announceCampaign(db, c);
+  revalidatePath("/staff/nir"); revalidatePath("/staff/plan");
+  return { ok: true, info: `НИР загружена. Уведомлений отправлено: ${sent.count} (руководителям кафедры и студентам)` };
+}
+
+/** Кафедра удаляет свою НИР, пока по ней нет заявок студентов. */
+export async function deleteNirCampaign(form: FormData) {
+  const user = await requireUser(["DEPARTMENT"]);
+  const id = Number(form.get("id"));
+  const c = await db.supervisionCampaign.findFirst({ where: { id, departmentId: user.staffDepartmentId ?? -1 }, include: { _count: { select: { requests: true } } } });
+  if (!c || c._count.requests > 0) return;
+  await db.$transaction([db.supervisorIntake.deleteMany({ where: { campaignId: id } }), db.supervisionCampaign.delete({ where: { id } })]);
+  revalidatePath("/staff/nir"); revalidatePath("/staff/plan");
 }
