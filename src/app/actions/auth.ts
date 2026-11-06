@@ -27,7 +27,8 @@ export async function login(_: LoginState, formData: FormData): Promise<LoginSta
     return { error: "Слишком много попыток входа. Подождите 5 минут.", login: parsed.data.login };
   }
 
-  const person = await db.person.findUnique({ where: { login: loginName }, select: { id: true, role: true, passwordHash: true } });
+  // логин без учёта регистра: Ivanov_P_V = ivanov_p_v (уникальность без учёта регистра обеспечивает lib/accounts)
+  const person = await db.person.findFirst({ where: { login: { equals: loginName, mode: "insensitive" } }, select: { id: true, role: true, passwordHash: true, mustChangePassword: true } });
   const ok = person
     ? await verifyPassword(person.passwordHash, parsed.data.password)
     : (await verifyPassword(await dummyHash(), parsed.data.password), false);
@@ -37,7 +38,7 @@ export async function login(_: LoginState, formData: FormData): Promise<LoginSta
   if (!ok || !person) return { error: "Неверный логин или пароль", login: parsed.data.login };
 
   await createSession(person.id);
-  redirect(homeFor(person.role));
+  redirect(person.mustChangePassword ? "/account/password" : homeFor(person.role));
 }
 
 export async function logout() {

@@ -16,7 +16,7 @@
 
 ## Роли
 
-`student` (уровень: `bachelor` / `master` / `postgrad`), `dean_office`, `supervisor` (научный руководитель), `department` (выпускающая кафедра). Подробно — в `docs/SPEC.md`, раздел «Матрица доступа».
+`student` (уровень: `bachelor` / `master` / `postgrad`), `dean_office`, `supervisor` (научный руководитель), `department` (выпускающая кафедра), `rector` (проректор). Кто кого создаёт — `docs/SPEC.md` §14, правила — `accountScope` в `src/lib/access.ts`. Подробно — в `docs/SPEC.md`, раздел «Матрица доступа».
 
 ## Стек (не менять без согласования)
 
@@ -86,6 +86,8 @@ npx tsc --noEmit && npm run lint && npm run build   # перед коммито�
 
 - Кнопки shadcn (`base-nova`) по умолчанию `type="button"` — в формах всегда пиши `type="submit"`. Они же не передают `name`/`value` в FormData: несколько действий в одной форме — через скрытое поле, заполняемое по onClick.
 - После `prisma migrate dev` перезапусти `npm run dev`: dev-сервер держит в памяти старый Prisma Client (ошибка PrismaClientValidationError).
+- Из `layout.tsx` нельзя экспортировать ничего, кроме компонента (ломает типы Next.js) — общие константы в отдельный файл.
+- Миграции: `migrate dev` не работает в неинтерактивном режиме при предупреждениях → `prisma migrate diff --from-schema-datasource … --to-schema-datamodel … --script` в новую папку миграции + `migrate deploy`.
 - Иконки в навигацию передаются строкой (`icon: "home"`), не компонентом: серверный компонент не может передать функцию клиентскому.
 - Не запускай `npm run build` при работающем `npm run dev`: сборка перезаписывает `.next`, dev-сервер падает с `Cannot find module './NNN.js'`. Лечится остановкой dev и удалением `.next`.
 - Имя папки проекта кириллическое — в docker-compose задано `name: dekanat`.

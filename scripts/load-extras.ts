@@ -7,6 +7,7 @@
 import { PrismaClient } from "@prisma/client";
 import { appendFileSync, readFileSync } from "node:fs";
 import { seedSupervision } from "../prisma/supervision-seed";
+import { seedAccounts } from "../prisma/accounts-seed";
 
 const db = new PrismaClient();
 const d = (s: string) => new Date(s + "T00:00:00Z");
@@ -62,7 +63,7 @@ async function main() {
   }
 
   // выбор научного руководителя (SPEC §12): новые аккаунты дописываются в файл паролей вне git
-  const creds = await seedSupervision(db);
+  const creds = [...(await seedSupervision(db)), ...(await seedAccounts(db))];
   if (creds.length) appendFileSync(process.env.SEED_CREDENTIALS_FILE || ".demo-accounts.local.md", creds.map(([l, p, w]) => `| ${l} | ${p} | ${w} |`).join("\n") + "\n", { mode: 0o600 });
 
   console.log(`Новых аккаунтов для жюри: ${creds.length}. Готово: мероприятий ${await db.event.count()}, периодов практики ${await db.practicePeriod.count()}, занятий сессии ${await db.exam.count()}, проверок ${await db.antiplagiatCheck.count()}`);

@@ -16,6 +16,7 @@ enum Role {
   DEAN_OFFICE
   SUPERVISOR
   DEPARTMENT
+  RECTOR // проректор: создаёт деканаты (SPEC §14)
 }
 
 enum Level {
@@ -103,6 +104,7 @@ model Department {
   theses        Thesis[]
   topics        ThesisTopic[]
   announcements Announcement[]
+  postgrads     Enrollment[]
 }
 
 model Program {
@@ -183,6 +185,10 @@ model Person {
   supervisorProfile   SupervisorProfile?
   incomingSupervision SupervisorRequest[] @relation("SupervisorInbox")
   intakes             SupervisorIntake[]
+  mustChangePassword  Boolean             @default(false) // одноразовый пароль — сменить при первом входе
+  createdById         String?
+  createdBy           Person?             @relation("CreatedAccounts", fields: [createdById], references: [id])
+  createdAccounts     Person[]            @relation("CreatedAccounts")
 }
 
 model Session {
@@ -237,6 +243,8 @@ model Enrollment {
   planItems          PlanItem[]
   antiplagiatChecks  AntiplagiatCheck[]
   supervisorRequests SupervisorRequest[]
+  departmentId       Int? // кафедра аспиранта
+  department         Department?         @relation(fields: [departmentId], references: [id])
 
   @@index([personId, status])
   @@index([facultyId])

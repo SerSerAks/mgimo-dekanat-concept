@@ -21,7 +21,7 @@ async function userOf(login: string) {
 }
 
 (async () => {
-  const { enrollmentScope, requestScope, thesisScope, gradeScope, supervisorRequestScope, canChooseSupervisor, campaignScope } = await import("../src/lib/access");
+  const { enrollmentScope, requestScope, thesisScope, gradeScope, supervisorRequestScope, canChooseSupervisor, campaignScope, accountScope } = await import("../src/lib/access");
   const { campaignsFor } = await import("../src/lib/campaigns");
   const names = async (where: object) => (await db.enrollment.findMany({ where, include: { person: true } })).map((e) => e.person.login).sort();
 
@@ -79,6 +79,19 @@ async function userOf(login: string) {
   const s3camps = await campaignsFor(db, s3e);
   check("student3 (3 курс) попадает в кампанию курсовых 3 курса, а не в ВКР", s3camps.length > 0 && s3camps.every((c) => c.course === 3 && c.workType === "COURSEWORK"));
   check("student1 (1 курс) не попадает ни в одну кампанию", (await campaignsFor(db, s1e)).length === 0);
+
+  // создание и управление аккаунтами (SPEC §14)
+  const loginsIn = async (u: never) => (await db.person.findMany({ where: accountScope(u), select: { login: true, role: true } }));
+  const rector = await userOf("rector1");
+  const rs = await loginsIn(rector);
+  check("проректор управляет только деканатами", rs.length > 0 && rs.every((p) => p.role === "DEAN_OFFICE"), `${rs.length} шт.`);
+  const ds = (await loginsIn(deanMo)).map((p) => p.login);
+  check("деканат МО управляет своими студентами, но не студентами МП и не другим деканатом", ds.includes("student1") && !ds.includes("student2") && !ds.includes("dean_mp") && !ds.includes("master1"));
+  const ks = await loginsIn(dept);
+  check("кафедра управляет только аспирантами и руководителями своей кафедры", !ks.some((p) => ["student1", "student2", "supervisor1", "postgrad1"].includes(p.login)) && ks.some((p) => p.login === "supervisor_mp"), ks.map((p) => p.login).join(","));
+  const s2id = (await db.person.findUniqueOrThrow({ where: { login: "student2" } })).id;
+  check("деканат МО не может сбросить пароль студенту МП (поиск в области доступа)", !(await db.person.findFirst({ where: { AND: [{ id: s2id }, accountScope(deanMo)] } })));
+  check("студент не управляет аккаунтами", (await db.person.count({ where: accountScope(s1) })) === 0);
 
   console.log(failed ? `\nПровалено проверок: ${failed}` : "\nВсе проверки доступа пройдены");
   await db.$disconnect();

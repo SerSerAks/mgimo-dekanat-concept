@@ -25,9 +25,12 @@ export function enrollmentScope(user: CurrentUser): Prisma.EnrollmentWhereInput 
     case "SUPERVISOR":
       return { supervisorId: user.id, status: "ACTIVE" };
     case "DEPARTMENT":
+      // своя кафедра: выпускники с ВКР кафедры и аспиранты кафедры
       return user.staffDepartmentId != null
-        ? { status: "ACTIVE", thesis: { departmentId: user.staffDepartmentId } }
+        ? { status: "ACTIVE", OR: [{ thesis: { departmentId: user.staffDepartmentId } }, { departmentId: user.staffDepartmentId }] }
         : NOTHING;
+    case "RECTOR":
+      return NOTHING;
   }
 }
 
@@ -49,6 +52,8 @@ export function thesisScope(user: CurrentUser): Prisma.ThesisWhereInput {
       return { enrollment: { supervisorId: user.id, status: "ACTIVE" } };
     case "DEPARTMENT":
       return user.staffDepartmentId != null ? { departmentId: user.staffDepartmentId, enrollment: { status: "ACTIVE" } } : { id: "__none__" };
+    case "RECTOR":
+      return { id: "__none__" };
   }
 }
 
@@ -88,4 +93,41 @@ export function canChooseSupervisor(e: { level: "BACHELOR" | "MASTER" | "POSTGRA
 export function campaignScope(user: CurrentUser): Prisma.SupervisionCampaignWhereInput {
   if (user.role === "DEAN_OFFICE" && user.staffFacultyId != null) return { facultyId: user.staffFacultyId };
   return { id: -1 };
+}
+
+/**
+ * Аккаунты, которыми управляет пользователь (SPEC §14): видит в списке, сбрасывает пароль.
+ * Проректор — деканаты; деканат — кафедры и студентов (бакалавр, магистр) своего факультета;
+ * кафедра — аспирантов и научных руководителей своей кафедры.
+ */
+export function accountScope(user: CurrentUser): Prisma.PersonWhereInput {
+  const none = { id: "__none__" };
+  switch (user.role) {
+    case "RECTOR":
+      return { role: "DEAN_OFFICE" };
+    case "DEAN_OFFICE":
+      if (user.staffFacultyId == null) return none;
+      return { OR: [
+        { role: "DEPARTMENT", staffDepartment: { facultyId: user.staffFacultyId } },
+        { role: "STUDENT", enrollments: { some: { facultyId: user.staffFacultyId, level: { in: ["BACHELOR", "MASTER"] }, status: "ACTIVE" } } },
+      ] };
+    case "DEPARTMENT":
+      if (user.staffDepartmentId == null) return none;
+      return { OR: [
+        { role: "STUDENT", enrollments: { some: { departmentId: user.staffDepartmentId, level: "POSTGRAD", status: "ACTIVE" } } },
+        { role: "SUPERVISOR", staffDepartmentId: user.staffDepartmentId },
+      ] };
+    default:
+      return none;
+  }
+}
+
+/** Какие аккаунты пользователь может создавать. */
+export function creatableKinds(user: CurrentUser) {
+  switch (user.role) {
+    case "RECTOR": return ["dean"] as const;
+    case "DEAN_OFFICE": return ["student", "department"] as const;
+    case "DEPARTMENT": return ["postgrad", "supervisor"] as const;
+    default: return [] as const;
+  }
 }

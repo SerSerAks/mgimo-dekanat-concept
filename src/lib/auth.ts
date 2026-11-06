@@ -44,7 +44,7 @@ export const getCurrentUser = cache(async () => {
       person: {
         select: {
           id: true, login: true, role: true, lastName: true, firstName: true, middleName: true,
-          avatarColor: true, staffFacultyId: true, staffDepartmentId: true,
+          avatarColor: true, staffFacultyId: true, staffDepartmentId: true, mustChangePassword: true,
           enrollments: {
             where: { status: "ACTIVE" },
             take: 1,
@@ -59,9 +59,11 @@ export const getCurrentUser = cache(async () => {
   return { ...person, enrollment: enrollments[0] ?? null };
 });
 
-export async function requireUser(roles?: Role[]) {
+export async function requireUser(roles?: Role[], opts: { allowPasswordChange?: boolean } = {}) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  // одноразовый пароль от деканата/кафедры — сначала смена (SPEC §14)
+  if (user.mustChangePassword && !opts.allowPasswordChange) redirect("/account/password");
   if (roles && !roles.includes(user.role)) redirect("/");
   return user;
 }
@@ -78,5 +80,6 @@ export function homeFor(role: Role) {
     case "DEAN_OFFICE": return "/staff/requests";
     case "SUPERVISOR": return "/staff/students";
     case "DEPARTMENT": return "/staff/graduates";
+    case "RECTOR": return "/staff/accounts";
   }
 }

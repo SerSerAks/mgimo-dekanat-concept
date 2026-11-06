@@ -14,6 +14,7 @@ const DEMO = [
   ["dean_mp", "Деканат МП"],
   ["supervisor1", "Научный руководитель"],
   ["dept_mp", "Кафедра международного права"],
+  ["rector1", "Проректор — создаёт деканаты"],
 ];
 
 export default async function LoginPage() {
